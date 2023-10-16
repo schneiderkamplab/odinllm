@@ -28,6 +28,9 @@ def _train():
 @click.argument("pretrained-model", type=click.Path(exists=True))
 @click.argument("lora-model", type=click.Path(exists=False))
 @click.option("--max-steps", "-s", default=-1, type=int)
+@click.option("--gradient-accumulation-steps", "-g", default=1, type=int)
+@click.option("--per-device-train-batch-size", "-b", default=1, type=int)
+@click.option("--max-steps", "-s", default=-1, type=int)
 @click.option("--dataset", "-d", default="samsum", type=str)
 @click.option("--device-map", "-m", default="auto")
 def train(**kwargs):
@@ -125,8 +128,8 @@ def train(**kwargs):
         'lora_config': lora_config,
         'learning_rate': 1e-4,
         'num_train_epochs': 1,
-        'gradient_accumulation_steps': 1,
-        'per_device_train_batch_size': 1,
+        'gradient_accumulation_steps': args.gradient_accumulation_steps,
+        'per_device_train_batch_size': args.per_device_train_batch_size,
         'gradient_checkpointing': False,
     }
 
