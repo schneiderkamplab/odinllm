@@ -37,13 +37,6 @@ def train(**kwargs):
     tokenizer = AutoTokenizer.from_pretrained(args.pretrained_model)
     model = AutoModelForCausalLM.from_pretrained(args.pretrained_model, device_map=args.device_map, torch_dtype=torch.float16)
 
-    @dataclass
-    class samsum_dataset:
-        dataset: str =  "samsum_dataset"
-        train_split: str = "train"
-        test_split: str = "validation"
-        input_length: int = 2048
-
     if args.dataset == "samsum":
         dataset = datasets.load_dataset("samsum", split="train")
         print(dataset)
@@ -61,12 +54,12 @@ def train(**kwargs):
         prompt_input = (
                 "Below is an instruction that describes a task, paired with an input that provides further context. "
                 "Write a response that appropriately completes the request.\n\n"
-                "### Instruction:\n{instruction}\n\n### Input:\n{input}\n\n### Response:\n{output}"
+                "### Instruction:\n{instruction}\n\n### Input:\n{input}\n\n### Response:\n{output}{eos_token}"
             )
         prompt_no_input = (
                 "Below is an instruction that describes a task. "
                 "Write a response that appropriately completes the request.\n\n"
-                "### Instruction:\n{instruction}\n\n### Response:\n{output}"
+                "### Instruction:\n{instruction}\n\n### Response:\n{output}{eos_token}"
             )
         def apply_prompt_template(sample):
             if sample.get("input", "") == "":
@@ -93,7 +86,7 @@ def train(**kwargs):
     )
     tokenizer.pad_token = tokenizer.eos_token
     def apply_tokenizer(sample):
-        sample = tokenizer(sample["text"], return_tensors="pt", padding=True, max_length=2028, truncation=True)
+        sample = tokenizer(sample["text"], return_tensors="pt", padding=True, max_length=model.base_model.config.max_position_embeddings, truncation=True)
         sample["labels"] = sample["input_ids"].clone()
         return sample
     dataset = dataset.map(
