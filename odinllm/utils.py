@@ -1,3 +1,4 @@
+from argparse import Namespace
 import logging
 
 logging.basicConfig(

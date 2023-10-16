@@ -1,8 +1,7 @@
-from argparse import Namespace
 import click
 from transformers import AutoModelForCausalLM, AutoTokenizer, GPTQConfig
 
-from .utils import parse_device_map
+from .utils import Namespace, parse_device_map
 
 @click.group()
 def _quantize():

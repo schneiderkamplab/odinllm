@@ -2,6 +2,8 @@ import click
 from transformers import AutoModelForCausalLM, AutoTokenizer, GPTQConfig
 import logging
 
+from .utils import Namespace, parse_device_map
+
 logging.basicConfig(
     format="%(asctime)s %(levelname)s [%(name)s] %(message)s", level=logging.INFO, datefmt="%Y-%m-%d %H:%M:%S"
 )
@@ -13,9 +15,11 @@ def _infer():
 @click.argument("pretrained-model", type=click.Path(exists=True))
 @click.option("--eval-prompt", "-p", default="The main difference between a llama and alpaca is ")
 @click.option("--device-map", "-m", default="auto")
-def infer(pretrained_model, eval_prompt, device_map):
-    tokenizer = AutoTokenizer.from_pretrained(pretrained_model, use_fast=True)
-    model = AutoModelForCausalLM.from_pretrained(pretrained_model, device_map=device_map)
+def infer(**kwargs):
+    args = Namespace(**kwargs)
+    args.device_map = parse_device_map(args.device_map)
+    tokenizer = AutoTokenizer.from_pretrained(args.pretrained_model, use_fast=True)
+    model = AutoModelForCausalLM.from_pretrained(args.pretrained_model, device_map=args.device_map)
     print(tokenizer.decode(model.generate(**tokenizer(eval_prompt, return_tensors="pt").to(model.device),max_new_tokens=128)[0]))
     eval_prompt = """
     Summarize this dialog:
