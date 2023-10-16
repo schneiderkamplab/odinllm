@@ -19,7 +19,7 @@ from transformers import (
     TrainingArguments,
 )
 
-from .utils import Namespace, parse_device_map
+from .utils import FEATURES2PROMPT, Namespace, parse_device_map
 
 @click.group()
 def _train():
@@ -28,7 +28,7 @@ def _train():
 @click.argument("pretrained-model", type=click.Path(exists=True))
 @click.argument("lora-model", type=click.Path(exists=False))
 @click.option("--max-steps", "-s", default=-1, type=int)
-@click.option("--dataset", "-d", default="samsum", type=click.Choice(["alpaca","samsum"]))
+@click.option("--dataset", "-d", default="samsum", type=str)
 @click.option("--device-map", "-m", default="auto")
 def train(**kwargs):
     args = Namespace(**kwargs)
@@ -37,50 +37,26 @@ def train(**kwargs):
     tokenizer = AutoTokenizer.from_pretrained(args.pretrained_model)
     model = AutoModelForCausalLM.from_pretrained(args.pretrained_model, device_map=args.device_map, torch_dtype=torch.float16)
 
-    if args.dataset == "samsum":
-        dataset = datasets.load_dataset("samsum", split="train")
-        print(dataset)
-        prompt = f"Summarize this dialog:\n{{dialog}}\n---\nSummary:\n{{summary}}{{eos_token}}"
-        def apply_prompt_template(sample):
-            return {
-                "text": prompt.format(
-                    dialog=sample["dialogue"],
-                    summary=sample["summary"],
-                    eos_token=tokenizer.eos_token,
-                )
-            }
-    elif args.dataset == "alpaca":
-        dataset = load_dataset("json", data_files="alpaca_gpt4.json", split="train")
-        prompt_input = (
-                "Below is an instruction that describes a task, paired with an input that provides further context. "
-                "Write a response that appropriately completes the request.\n\n"
-                "### Instruction:\n{instruction}\n\n### Input:\n{input}\n\n### Response:\n{output}{eos_token}"
-            )
-        prompt_no_input = (
-                "Below is an instruction that describes a task. "
-                "Write a response that appropriately completes the request.\n\n"
-                "### Instruction:\n{instruction}\n\n### Response:\n{output}{eos_token}"
-            )
-        def apply_prompt_template(sample):
-            if sample.get("input", "") == "":
-                return {
-                    "text": prompt_no_input.format(
-                        instruction=sample["instruction"],
-                        output=sample["output"],
-                        eos_token=tokenizer.eos_token,
-                    )
-                }
-            else:
-                return {
-                    "text": prompt_input.format(
-                        instruction=sample["instruction"],
-                        input=sample["input"],
-                        output=sample["output"],
-                        eos_token=tokenizer.eos_token,
-                    )
-                }
+    if os.path.isfile(args.dataset):
+        dataset = load_dataset("json", data_files=args.dataset, split="train")
     else:
-        raise RuntimeError("dataset {args.dataset} not supported yet")
+        dataset = datasets.load_dataset(args.dataset, split="train")
+    def apply_prompt_template(sample):
+        sample_clean = {k: v for k, v in sample.items() if v.strip()}
+        features = tuple(sorted(sample_clean.keys()))
+        prompt = FEATURES2PROMPT.get(features, None)
+        if prompt is None:
+            features = tuple(sorted(sample.keys()))
+            prompt = FEATURES2PROMPT.get(features, None)
+            if prompt is None:
+                raise RuntimeError(f"no prompt template for feature combination {features} for sample {sample}")
+            sample_clean = sample
+        return {
+            "text": prompt.format(
+                eos_token=tokenizer.eos_token,
+                **sample_clean,
+            )
+        }
     dataset = dataset.map(
         apply_prompt_template, remove_columns=list(dataset.features)
     )
