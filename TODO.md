@@ -6,3 +6,4 @@
 * move parsing of arguments into utils (by name)
 * more parameters (e.g. LoRA size)
 * implement test suite
+* integrate snapshot/download functionality

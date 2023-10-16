@@ -1,7 +1,8 @@
 import click
 from contextlib import nullcontext
 from dataclasses import dataclass
-from llama_recipes.utils.dataset_utils import get_preprocessed_dataset
+from datasets import load_dataset
+import datasets
 import os
 from peft import (
     get_peft_model,
@@ -27,7 +28,7 @@ def _train():
 @click.argument("pretrained-model", type=click.Path(exists=True))
 @click.argument("lora-model", type=click.Path(exists=False))
 @click.option("--max-steps", "-s", default=-1, type=int)
-@click.option("--dataset", "-d", default="c4")
+@click.option("--dataset", "-d", default="samsum", type=click.Choice(["alpaca","samsum"]))
 @click.option("--device-map", "-m", default="auto")
 def train(**kwargs):
     args = Namespace(**kwargs)
@@ -43,7 +44,63 @@ def train(**kwargs):
         test_split: str = "validation"
         input_length: int = 2048
 
-    train_dataset = get_preprocessed_dataset(tokenizer, samsum_dataset, 'train')
+    if args.dataset == "samsum":
+        dataset = datasets.load_dataset("samsum", split="train")
+        print(dataset)
+        prompt = f"Summarize this dialog:\n{{dialog}}\n---\nSummary:\n{{summary}}{{eos_token}}"
+        def apply_prompt_template(sample):
+            return {
+                "text": prompt.format(
+                    dialog=sample["dialogue"],
+                    summary=sample["summary"],
+                    eos_token=tokenizer.eos_token,
+                )
+            }
+    elif args.dataset == "alpaca":
+        dataset = load_dataset("json", data_files="alpaca_gpt4.json", split="train")
+        prompt_input = (
+                "Below is an instruction that describes a task, paired with an input that provides further context. "
+                "Write a response that appropriately completes the request.\n\n"
+                "### Instruction:\n{instruction}\n\n### Input:\n{input}\n\n### Response:\n{output}"
+            )
+        prompt_no_input = (
+                "Below is an instruction that describes a task. "
+                "Write a response that appropriately completes the request.\n\n"
+                "### Instruction:\n{instruction}\n\n### Response:\n{output}"
+            )
+        def apply_prompt_template(sample):
+            if sample.get("input", "") == "":
+                return {
+                    "text": prompt_no_input.format(
+                        instruction=sample["instruction"],
+                        output=sample["output"],
+                        eos_token=tokenizer.eos_token,
+                    )
+                }
+            else:
+                return {
+                    "text": prompt_input.format(
+                        instruction=sample["instruction"],
+                        input=sample["input"],
+                        output=sample["output"],
+                        eos_token=tokenizer.eos_token,
+                    )
+                }
+    else:
+        raise RuntimeError("dataset {args.dataset} not supported yet")
+    dataset = dataset.map(
+        apply_prompt_template, remove_columns=list(dataset.features)
+    )
+    tokenizer.pad_token = tokenizer.eos_token
+    def apply_tokenizer(sample):
+        sample = tokenizer(sample["text"], return_tensors="pt", padding=True, max_length=2028, truncation=True)
+        sample["labels"] = sample["input_ids"].clone()
+        return sample
+    dataset = dataset.map(
+        apply_tokenizer,
+        batched=True,
+        remove_columns=list(dataset.features),
+    )
 
     eval_prompt = """
     Summarize this dialog:
@@ -126,7 +183,7 @@ def train(**kwargs):
         trainer = Trainer(
             model=model,
             args=training_args,
-            train_dataset=train_dataset,
+            train_dataset=dataset,
             data_collator=default_data_collator,
             callbacks=[],
         )
