@@ -145,7 +145,7 @@ def train(**kwargs):
     config = {
         'lora_config': lora_config,
         'learning_rate': 1e-4,
-        'num_train_epochs': 1,
+        'num_train_epochs': 5,
         'gradient_accumulation_steps': args.gradient_accumulation_steps,
         'per_device_train_batch_size': args.per_device_train_batch_size,
         'gradient_checkpointing': False,
@@ -161,7 +161,7 @@ def train(**kwargs):
         # logging strategies
         logging_dir=os.path.join(args.lora_model,"logs"),
         logging_strategy="steps",
-        logging_steps=1,
+        logging_steps=100,
         save_strategy="no",
         optim="adamw_torch_fused",
         max_steps=args.max_steps,
