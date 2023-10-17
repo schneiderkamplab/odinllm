@@ -3,6 +3,7 @@
 * update README with different scenarios (lora, pseudo qlora)
 * quantize adapter weights and merge with quantized model (real qlora)
 * quantized adapter and merge with quantized model (qalora)
+* quantization-aware training (llm-qat)
 * figure out device maps such that CUDA_VISIBLE_DEVICES is not nee3ded
 * move parsing of arguments into utils (by name)
 * more parameters (e.g. LoRA size)
