@@ -19,7 +19,7 @@ from transformers import (
     TrainingArguments,
 )
 
-from .utils import FEATURES2PROMPT, Namespace, parse_device_map
+from .utils import Concatenator, FEATURES2PROMPT, Namespace, parse_device_map
 
 @click.group()
 def _train():
@@ -32,13 +32,22 @@ def _train():
 @click.option("--per-device-train-batch-size", "-b", default=1, type=int)
 @click.option("--max-steps", "-s", default=-1, type=int)
 @click.option("--dataset", "-d", default="samsum", type=str)
+@click.option("--concatenate/--no-concatenate", default=True)
 @click.option("--device-map", "-m", default="auto")
 def train(**kwargs):
     args = Namespace(**kwargs)
     args.device_map = parse_device_map(args.device_map)
 
-    tokenizer = AutoTokenizer.from_pretrained(args.pretrained_model)
-    model = AutoModelForCausalLM.from_pretrained(args.pretrained_model, device_map=args.device_map, torch_dtype=torch.float16)
+    tokenizer = AutoTokenizer.from_pretrained(
+        args.pretrained_model,
+        padding_side="right",
+        truncation_side="right",
+    )
+    model = AutoModelForCausalLM.from_pretrained(
+        args.pretrained_model,
+        device_map=args.device_map,
+        torch_dtype=torch.float16,
+    )
 
     if os.path.isfile(args.dataset):
         dataset = load_dataset("json", data_files=args.dataset, split="train")
@@ -61,18 +70,27 @@ def train(**kwargs):
             )
         }
     dataset = dataset.map(
-        apply_prompt_template, remove_columns=list(dataset.features)
+        apply_prompt_template,
+        remove_columns=list(dataset.features),
     )
     tokenizer.pad_token = tokenizer.eos_token
+    tokenizer_kwargs = {} if args.concatenate else {
+        "padding": "max_length",
+        "max_length": model.base_model.config.max_position_embeddings,
+        "truncation": True,
+    }
     def apply_tokenizer(sample):
-        sample = tokenizer(sample["text"], return_tensors="pt", padding=True, max_length=model.base_model.config.max_position_embeddings, truncation=True)
+        sample = tokenizer(sample["text"], return_tensors="pt", **tokenizer_kwargs)
         sample["labels"] = sample["input_ids"].clone()
         return sample
     dataset = dataset.map(
         apply_tokenizer,
         batched=True,
+        batch_size=1,
         remove_columns=list(dataset.features),
     )
+    if args.concatenate:
+        dataset = dataset.map(Concatenator(chunk_size=model.base_model.config.max_position_embeddings), batched=True)
 
     eval_prompt = """
     Summarize this dialog:
