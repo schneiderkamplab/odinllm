@@ -20,7 +20,7 @@ def infer(**kwargs):
     args.device_map = parse_device_map(args.device_map)
     tokenizer = AutoTokenizer.from_pretrained(args.pretrained_model, use_fast=True)
     model = AutoModelForCausalLM.from_pretrained(args.pretrained_model, device_map=args.device_map)
-    print(tokenizer.decode(model.generate(**tokenizer(eval_prompt, return_tensors="pt").to(model.device),max_new_tokens=128)[0]))
+    print(tokenizer.decode(model.generate(**tokenizer(args.eval_prompt, return_tensors="pt").to(model.device),max_new_tokens=128)[0]))
     eval_prompt = """
     Summarize this dialog:
     A: Hi Tom, are you busy tomorrow’s afternoon?

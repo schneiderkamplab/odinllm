@@ -24,5 +24,5 @@ def merge(**kwargs):
     merged_model = model.merge_and_unload()
     merged_model.save_pretrained(args.merged_model)
 
-    tokenizer = AutoTokenizer.from_pretrained(args.pretrained)
+    tokenizer = AutoTokenizer.from_pretrained(args.pretrained_model)
     tokenizer.save_pretrained(args.merged_model)
