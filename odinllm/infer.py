@@ -45,5 +45,33 @@ def infer(**kwargs):
     """
     print(tokenizer.decode(model.generate(**tokenizer(eval_prompt, return_tensors="pt").to(model.device),max_new_tokens=256)[0]))
 
+    prompt = (
+        "Below is an instruction that describes a task, paired with an input that provides further context. "
+        "Write a response that appropriately completes the request.\n\n"
+        "### Instruction:\nSummarize this dialog.\n\n### Input:\n{dialogue}\n\n### Response:\n"
+    )
+    dialogue = """
+    Summarize this dialog:
+    A: Hi Tom, are you busy tomorrow’s afternoon?
+    B: I’m pretty sure I am. What’s up?
+    A: Can you go with me to the animal shelter?.
+    B: What do you want to do?
+    A: I want to get a puppy for my son.
+    B: That will make him so happy.
+    A: Yeah, we’ve discussed it many times. I think he’s ready now.
+    B: That’s good. Raising a dog is a tough issue. Like having a baby ;-)
+    A: I'll get him one of those little dogs.
+    B: One that won't grow up too big;-)
+    A: And eat too much;-))
+    B: Do you know which one he would like?
+    A: Oh, yes, I took him there last Monday. He showed me one that he really liked.
+    B: I bet you had to drag him away.
+    A: He wanted to take it home right away ;-).
+    B: I wonder what he'll name it.
+    A: He said he’d name it after his dead hamster – Lemmy  - he's  a great Motorhead fan :-)))eval_prompt = prompt.format(dialogue=dialogue)
+    """
+    eval_prompt = prompt.format(dialogue=dialogue)
+    print(tokenizer.decode(model.generate(**tokenizer(eval_prompt, return_tensors="pt").to(model.device),max_new_tokens=256)[0]))
+
 if __name__ == "__main__":
     infer()

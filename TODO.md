@@ -1,3 +1,5 @@
+* test whether trained models actually perform better before merging (lora)
+* test whether trained models actually perform better before merging (qlora)
 * test whether trained models actually perform better after merging (lora)
 * test whether trained models actually perform better after merging and quantization (pseudo qlora)
 * update README with different scenarios (lora, pseudo qlora)
