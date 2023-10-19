@@ -1,3 +1,6 @@
+* try with opt-125m
+* print and compare tensors for base models, quantized models, (q)lora adapters, and merged models
+* use torchview
 * test whether trained models actually perform better before merging (lora)
 * test whether trained models actually perform better before merging (qlora)
 * test whether trained models actually perform better after merging (lora)
