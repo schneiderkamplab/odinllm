@@ -40,7 +40,7 @@ def infer(**kwargs):
         end(end='')
         status(res)
     else:
-        for key, prompt in EXAMPLE_PROMPTS:
+        for key, prompt in EXAMPLE_PROMPTS.items():
             start(f"Testing {key} prompt")
             res = tokenizer.decode(model.generate(**tokenizer(prompt, return_tensors="pt").to(model.device),max_new_tokens=256)[0])
             end(end='')

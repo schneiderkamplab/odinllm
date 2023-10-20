@@ -61,7 +61,7 @@ def train(**kwargs):
         dataset = datasets.load_dataset(args.dataset, split="train")
     end()
 
-    for key, prompt in EXAMPLE_PROMPTS:
+    for key, prompt in EXAMPLE_PROMPTS.items():
         start(f"Testing {key} prompt with pretrained model")
         res = tokenizer.decode(model.generate(**tokenizer(prompt, return_tensors="pt").to(model.device),max_new_tokens=256)[0])
         end(end='')
@@ -136,7 +136,7 @@ def train(**kwargs):
     model, lora_config = create_peft_config(model)
     end()
 
-    for key, prompt in EXAMPLE_PROMPTS:
+    for key, prompt in EXAMPLE_PROMPTS.items():
         start(f"Testing {key} prompt with PEFT model")
         res = tokenizer.decode(model.generate(**tokenizer(prompt, return_tensors="pt").to(model.device),max_new_tokens=256)[0])
         end(end='')
@@ -187,7 +187,7 @@ def train(**kwargs):
     model.save_pretrained(args.lora_model)
     end()
 
-    for key, prompt in EXAMPLE_PROMPTS:
+    for key, prompt in EXAMPLE_PROMPTS.items():
         start(f"Testing {key} prompt with trained PEFT model")
         res = tokenizer.decode(model.generate(**tokenizer(prompt, return_tensors="pt").to(model.device),max_new_tokens=256)[0])
         end(end='')
