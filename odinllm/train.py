@@ -19,7 +19,7 @@ from transformers import (
     TrainingArguments,
 )
 
-from .utils import Concatenator, FEATURES2PROMPT, Namespace, parse_device_map
+from .utils import Concatenator, EXAMPLE_PROMPTS, FEATURES2PROMPT, Namespace, end, parse_device_map, start, status
 
 @click.group()
 def _train():
@@ -38,21 +38,36 @@ def train(**kwargs):
     args = Namespace(**kwargs)
     args.device_map = parse_device_map(args.device_map)
 
+    start("Loading tokenizer from", args.pretrained_model)
     tokenizer = AutoTokenizer.from_pretrained(
         args.pretrained_model,
         padding_side="right",
         truncation_side="right",
     )
+    end()
+
+    start("Loading pretrained model from", args.pretrained_model)
     model = AutoModelForCausalLM.from_pretrained(
         args.pretrained_model,
         device_map=args.device_map,
         torch_dtype=torch.float16,
     )
+    end()
 
+    start("Loading dataset from", args.dataset)
     if os.path.isfile(args.dataset):
         dataset = load_dataset("json", data_files=args.dataset, split="train")
     else:
         dataset = datasets.load_dataset(args.dataset, split="train")
+    end()
+
+    for key, prompt in EXAMPLE_PROMPTS:
+        start(f"Testing {key} prompt with pretrained model")
+        res = tokenizer.decode(model.generate(**tokenizer(prompt, return_tensors="pt").to(model.device),max_new_tokens=256)[0])
+        end(end='')
+        status(res)
+
+    start("Creating prompts from data")
     def apply_prompt_template(sample):
         sample_clean = {k: v for k, v in sample.items() if v.strip()}
         features = tuple(sorted(sample_clean.keys()))
@@ -73,6 +88,9 @@ def train(**kwargs):
         apply_prompt_template,
         remove_columns=list(dataset.features),
     )
+    end()
+
+    start("Tokenizing data")
     tokenizer.pad_token = tokenizer.eos_token
     tokenizer_kwargs = {} if args.concatenate else {
         "padding": "max_length",
@@ -89,40 +107,15 @@ def train(**kwargs):
         batch_size=1,
         remove_columns=list(dataset.features),
     )
+    end()
+
+    start("Concatenating samples")
     if args.concatenate:
         dataset = dataset.map(Concatenator(chunk_size=model.base_model.config.max_position_embeddings), batched=True)
+    end()
 
-    eval_prompt = """
-    Summarize this dialog:
-    A: Hi Tom, are you busy tomorrow’s afternoon?
-    B: I’m pretty sure I am. What’s up?
-    A: Can you go with me to the animal shelter?.
-    B: What do you want to do?
-    A: I want to get a puppy for my son.
-    B: That will make him so happy.
-    A: Yeah, we’ve discussed it many times. I think he’s ready now.
-    B: That’s good. Raising a dog is a tough issue. Like having a baby ;-) 
-    A: I'll get him one of those little dogs.
-    B: One that won't grow up too big;-)
-    A: And eat too much;-))
-    B: Do you know which one he would like?
-    A: Oh, yes, I took him there last Monday. He showed me one that he really liked.
-    B: I bet you had to drag him away.
-    A: He wanted to take it home right away ;-).
-    B: I wonder what he'll name it.
-    A: He said he’d name it after his dead hamster – Lemmy  - he's  a great Motorhead fan :-)))
-    ---
-    Summary:
-    """
-
-    model_input = tokenizer(eval_prompt, return_tensors="pt").to(model.device)
-
-    model.eval()
-    with torch.no_grad():
-        print(tokenizer.decode(model.generate(**model_input, max_new_tokens=100)[0], skip_special_tokens=True))
-
+    start("Prepare for PEFT")
     model.train()
-
     def create_peft_config(model):
         peft_config = LoraConfig(
             task_type=TaskType.CAUSAL_LM,
@@ -141,7 +134,15 @@ def train(**kwargs):
 
     # create peft config
     model, lora_config = create_peft_config(model)
+    end()
 
+    for key, prompt in EXAMPLE_PROMPTS:
+        start(f"Testing {key} prompt with PEFT model")
+        res = tokenizer.decode(model.generate(**tokenizer(prompt, return_tensors="pt").to(model.device),max_new_tokens=256)[0])
+        end(end='')
+        status(res)
+
+    start("Training")
     config = {
         'lora_config': lora_config,
         'learning_rate': 1e-4,
@@ -180,29 +181,14 @@ def train(**kwargs):
 
         # Start training
         trainer.train()
+    end()
 
+    start("Saving LoRA adapter to", args.lora_model)
     model.save_pretrained(args.lora_model)
+    end()
 
-    eval_prompt = """
-    Summarize this dialog:
-    A: Hi Tom, are you busy tomorrow’s afternoon?
-    B: I’m pretty sure I am. What’s up?
-    A: Can you go with me to the animal shelter?.
-    B: What do you want to do?
-    A: I want to get a puppy for my son.
-    B: That will make him so happy.
-    A: Yeah, we’ve discussed it many times. I think he’s ready now.
-    B: That’s good. Raising a dog is a tough issue. Like having a baby ;-)
-    A: I'll get him one of those little dogs.
-    B: One that won't grow up too big;-)
-    A: And eat too much;-))
-    B: Do you know which one he would like?
-    A: Oh, yes, I took him there last Monday. He showed me one that he really liked.
-    B: I bet you had to drag him away.
-    A: He wanted to take it home right away ;-).
-    B: I wonder what he'll name it.
-    A: He said he’d name it after his dead hamster – Lemmy  - he's  a great Motorhead fan :-)))
-    ---
-    Summary:
-    """
-    print(tokenizer.decode(model.generate(**tokenizer(eval_prompt, return_tensors="pt").to(model.device),max_new_tokens=256)[0]))
+    for key, prompt in EXAMPLE_PROMPTS:
+        start(f"Testing {key} prompt with trained PEFT model")
+        res = tokenizer.decode(model.generate(**tokenizer(prompt, return_tensors="pt").to(model.device),max_new_tokens=256)[0])
+        end(end='')
+        status(res)
