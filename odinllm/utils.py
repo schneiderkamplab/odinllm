@@ -7,6 +7,16 @@ logging.basicConfig(
     format="%(asctime)s %(levelname)s [%(name)s] %(message)s", level=logging.INFO, datefmt="%Y-%m-%d %H:%M:%S"
 )
 
+def parse_args(kwargs):
+    args = Namespace(**kwargs)
+    if "device_map" in kwargs:
+        args.device_map = parse_device_map(args.device_map)
+    if "args" in kwargs:
+        args.bits = int(args.bits)
+    if "group_size" in kwargs:
+        args.group_size = int(args.group_size)
+    return args
+
 def parse_device_map(device_map):
     if device_map.isnumeric():
         return int(device_map)

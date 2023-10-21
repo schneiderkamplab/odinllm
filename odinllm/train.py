@@ -19,7 +19,7 @@ from transformers import (
     TrainingArguments,
 )
 
-from .utils import Concatenator, EXAMPLE_PROMPTS, FEATURES2PROMPT, Namespace, end, parse_device_map, start, status
+from .utils import Concatenator, EXAMPLE_PROMPTS, FEATURES2PROMPT, end, parse_args, start, status
 
 @click.group()
 def _train():
@@ -35,8 +35,7 @@ def _train():
 @click.option("--concatenate/--no-concatenate", default=True)
 @click.option("--device-map", "-m", default="auto")
 def train(**kwargs):
-    args = Namespace(**kwargs)
-    args.device_map = parse_device_map(args.device_map)
+    args = parse_args(kwargs)
 
     start("Loading tokenizer from", args.pretrained_model)
     tokenizer = AutoTokenizer.from_pretrained(

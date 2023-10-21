@@ -3,7 +3,7 @@ from peft import PeftModel
 from transformers import AutoModelForCausalLM, AutoTokenizer, GPTQConfig
 import logging
 
-from .utils import EXAMPLE_PROMPTS, Namespace, end, parse_device_map, start, status
+from .utils import EXAMPLE_PROMPTS, end, parse_args, start, status
 
 logging.basicConfig(
     format="%(asctime)s %(levelname)s [%(name)s] %(message)s", level=logging.INFO, datefmt="%Y-%m-%d %H:%M:%S"
@@ -18,8 +18,7 @@ def _infer():
 @click.option("--eval-prompt", "-p", default=None, help="Prompt to run instead of example prompts")
 @click.option("--device-map", "-m", default="auto")
 def infer(**kwargs):
-    args = Namespace(**kwargs)
-    args.device_map = parse_device_map(args.device_map)
+    args = parse_args(kwargs)
     
     start("Loading tokenizer from", args.pretrained_model)
     tokenizer = AutoTokenizer.from_pretrained(args.pretrained_model, use_fast=True)

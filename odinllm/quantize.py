@@ -1,7 +1,7 @@
 import click
 from transformers import AutoModelForCausalLM, AutoTokenizer, GPTQConfig
 
-from .utils import Namespace, end, parse_device_map, start
+from .utils import end, parse_args, start
 
 @click.group()
 def _quantize():
@@ -15,10 +15,7 @@ def _quantize():
 @click.option("--dataset", "-d", default="c4")
 @click.option("--device-map", "-m", default="auto")
 def quantize(**kwargs):
-    args = Namespace(**kwargs)
-    args.device_map = parse_device_map(args.device_map)
-    args.bits = int(args.bits)
-    args.group_size = int(args.group_size)
+    args = parse_args(kwargs)
 
     start("Loading tokenizer from", args.pretrained_model)
     tokenizer = AutoTokenizer.from_pretrained(args.pretrained_model, use_fast=True)

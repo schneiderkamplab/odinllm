@@ -1,16 +1,18 @@
-* try with opt-125m
 * print and compare tensors for base models, quantized models, (q)lora adapters, and merged models
 * use torchview
-* test whether trained models actually perform better before merging (lora)
 * test whether trained models actually perform better before merging (qlora)
-* test whether trained models actually perform better after merging (lora)
 * test whether trained models actually perform better after merging and quantization (pseudo qlora)
 * update README with different scenarios (lora, pseudo qlora)
 * quantize adapter weights and merge with quantized model (real qlora)
 * quantized adapter and merge with quantized model (qalora)
 * quantization-aware training (llm-qat)
 * figure out device maps such that CUDA_VISIBLE_DEVICES is not nee3ded
-* move parsing of arguments into utils (by name)
+* make decorator for argument parsing
 * more parameters (e.g. LoRA size)
 * implement test suite
 * integrate snapshot/download functionality
+
+TESTED:
++ test whether trained models actually perform better before merging (lora)
++ test whether trained models actually perform better after merging (lora)
+- try with opt-125m (same - lora works, qlora does not)

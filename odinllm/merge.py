@@ -3,7 +3,7 @@ from peft import PeftModel
 import torch
 from transformers import AutoModelForCausalLM, AutoTokenizer
 
-from .utils import Namespace, end, parse_device_map, start
+from .utils import end, parse_args, start
 
 @click.group()
 def _merge():
@@ -14,8 +14,7 @@ def _merge():
 @click.argument("merged-model", type=click.Path(exists=False))
 @click.option("--device-map", "-m", default="auto")
 def merge(**kwargs):
-    args = Namespace(**kwargs)
-    args.device_map = parse_device_map(args.device_map)
+    args = parse_args(kwargs)
 
     start("Loading pretrained model from", args.pretrained_model)
     model = AutoModelForCausalLM.from_pretrained(args.pretrained_model, device_map=args.device_map, torch_dtype=torch.float16)
