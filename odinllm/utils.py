@@ -11,7 +11,7 @@ def parse_args(kwargs):
     args = Namespace(**kwargs)
     if "device_map" in kwargs:
         args.device_map = parse_device_map(args.device_map)
-    if "args" in kwargs:
+    if "bits" in kwargs:
         args.bits = int(args.bits)
     if "group_size" in kwargs:
         args.group_size = int(args.group_size)
