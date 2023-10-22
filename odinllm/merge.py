@@ -13,8 +13,8 @@ def _merge():
 @click.argument("lora-model", type=click.Path(exists=True))
 @click.argument("merged-model", type=click.Path(exists=False))
 @click.option("--device-map", "-m", default="auto")
-def merge(**kwargs):
-    args = parse_args(kwargs)
+@parse_args
+def merge(args):
 
     start("Loading pretrained model from", args.pretrained_model)
     model = AutoModelForCausalLM.from_pretrained(args.pretrained_model, device_map=args.device_map, torch_dtype=torch.float16)

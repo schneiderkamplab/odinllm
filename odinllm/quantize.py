@@ -14,8 +14,8 @@ def _quantize():
 @click.option("--act-order/--no-act-order", default=False)
 @click.option("--dataset", "-d", default="c4")
 @click.option("--device-map", "-m", default="auto")
-def quantize(**kwargs):
-    args = parse_args(kwargs)
+@parse_args
+def quantize(args):
 
     start("Loading tokenizer from", args.pretrained_model)
     tokenizer = AutoTokenizer.from_pretrained(args.pretrained_model, use_fast=True)

@@ -17,9 +17,9 @@ def _infer():
 @click.option("--lora-adapter", "-l", default=None, help="Optional LoRA adapter to load with PEFT")
 @click.option("--eval-prompt", "-p", default=None, help="Prompt to run instead of example prompts")
 @click.option("--device-map", "-m", default="auto")
-def infer(**kwargs):
-    args = parse_args(kwargs)
-    
+@parse_args
+def infer(args):
+
     start("Loading tokenizer from", args.pretrained_model)
     tokenizer = AutoTokenizer.from_pretrained(args.pretrained_model, use_fast=True)
     end()

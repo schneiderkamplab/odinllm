@@ -34,8 +34,8 @@ def _train():
 @click.option("--dataset", "-d", default="samsum", type=str)
 @click.option("--concatenate/--no-concatenate", default=True)
 @click.option("--device-map", "-m", default="auto")
-def train(**kwargs):
-    args = parse_args(kwargs)
+@parse_args
+def train(args):
 
     start("Loading tokenizer from", args.pretrained_model)
     tokenizer = AutoTokenizer.from_pretrained(
