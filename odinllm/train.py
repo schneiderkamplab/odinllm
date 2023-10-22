@@ -14,7 +14,7 @@ from transformers import (
     TrainingArguments,
 )
 
-from .shared import load_dataset, load_model, load_tokenizer, run_prompt, save_lora
+from .shared import apply_concatenation, apply_templates, apply_tokenization, load_dataset, load_model, load_tokenizer, run_prompt, save_lora
 from .utils import Concatenator, FEATURES2PROMPT, end, parse_args, start
 
 @click.group()
@@ -34,57 +34,17 @@ def _train():
 @parse_args
 def train(args):
     tokenizer = load_tokenizer(args.pretrained_model)
-    model = load_model(args.pretrained_model, qualifier="pretrained model")
+    model = load_model(args.pretrained_model, device_map=args.device_map, qualifier="pretrained model")
     print(run_prompt(model, tokenizer))
     dataset = load_dataset(args.dataset)
-
-    start("Creating prompts from data")
-    def apply_prompt_template(sample):
-        sample_clean = {k: v for k, v in sample.items() if v.strip()}
-        features = tuple(sorted(sample_clean.keys()))
-        prompt = FEATURES2PROMPT.get(features, None)
-        if prompt is None:
-            features = tuple(sorted(sample.keys()))
-            prompt = FEATURES2PROMPT.get(features, None)
-            if prompt is None:
-                raise RuntimeError(f"no prompt template for feature combination {features} for sample {sample}")
-            sample_clean = sample
-        return {
-            "text": prompt.format(
-                eos_token=tokenizer.eos_token,
-                **sample_clean,
-            )
-        }
-    dataset = dataset.map(
-        apply_prompt_template,
-        remove_columns=list(dataset.features),
+    dataset = apply_templates(dataset, tokenizer)
+    dataset = apply_tokenization(
+        dataset,
+        tokenizer,
+        padding_length=None if args.concatenate else model.base_model.config.max_position_embeddings,
     )
-    end()
-
-    start("Tokenizing data")
-    tokenizer.pad_token = tokenizer.eos_token
-    tokenizer_kwargs = {} if args.concatenate else {
-        "padding": "max_length",
-        "max_length": model.base_model.config.max_position_embeddings,
-        "truncation": True,
-    }
-    def apply_tokenizer(sample):
-        sample = tokenizer(sample["text"], return_tensors="pt", **tokenizer_kwargs)
-        sample["labels"] = sample["input_ids"].clone()
-        return sample
-    dataset = dataset.map(
-        apply_tokenizer,
-        batched=True,
-        batch_size=1,
-        remove_columns=list(dataset.features),
-    )
-    end()
-
-    start("Concatenating samples")
     if args.concatenate:
-        dataset = dataset.map(Concatenator(chunk_size=model.base_model.config.max_position_embeddings), batched=True)
-    end()
-
+        dataset = apply_concatenation(dataset, chunk_length=model.base_model.config.max_position_embeddings)
     start("Prepare for PEFT")
     model.train()
     def create_peft_config(model):

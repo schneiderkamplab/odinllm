@@ -4,7 +4,59 @@ from peft import PeftModel
 import torch
 from transformers import AutoModelForCausalLM, AutoTokenizer, GPTQConfig
 
-from .utils import EXAMPLE_PROMPTS, end, start
+from .utils import Concatenator, EXAMPLE_PROMPTS, FEATURES2PROMPT, end, start
+
+def apply_concatenation(dataset, chunk_length):
+    start("Concatenating samples")
+    dataset = dataset.map(Concatenator(chunk_size=chunk_length), batched=True)
+    end()
+    return dataset
+
+def apply_templates(dataset, tokenizer):
+    start("Creating prompts from data")
+    def apply_prompt_template(sample):
+        sample_clean = {k: v for k, v in sample.items() if v.strip()}
+        features = tuple(sorted(sample_clean.keys()))
+        prompt = FEATURES2PROMPT.get(features, None)
+        if prompt is None:
+            features = tuple(sorted(sample.keys()))
+            prompt = FEATURES2PROMPT.get(features, None)
+            if prompt is None:
+                raise RuntimeError(f"no prompt template for feature combination {features} for sample {sample}")
+            sample_clean = sample
+        return {
+            "text": prompt.format(
+                eos_token=tokenizer.eos_token,
+                **sample_clean,
+            )
+        }
+    dataset = dataset.map(
+        apply_prompt_template,
+        remove_columns=list(dataset.features),
+    )
+    end()
+    return dataset
+
+def apply_tokenization(dataset, tokenizer, padding_length=None):
+    start("Tokenizing data")
+    tokenizer.pad_token = tokenizer.eos_token
+    tokenizer_kwargs = {} if padding_length is None else {
+        "padding": "max_length",
+        "max_length": padding_length,
+        "truncation": True,
+    }
+    def apply_tokenizer(sample):
+        sample = tokenizer(sample["text"], return_tensors="pt", **tokenizer_kwargs)
+        sample["labels"] = sample["input_ids"].clone()
+        return sample
+    dataset = dataset.map(
+        apply_tokenizer,
+        batched=True,
+        batch_size=1,
+        remove_columns=list(dataset.features),
+    )
+    end()
+    return dataset
 
 def load_and_quantize(model_dir, bits, group_size, act_order, dataset, tokenizer, device_map):
     start(
@@ -30,6 +82,7 @@ def load_dataset(dataset):
     else:
         dataset = datasets.load_dataset(dataset, split="train")
     end()
+    return dataset
 
 def load_lora(model, lora_dir):
     start("Loading LoRA adapter from", lora_dir)
@@ -64,7 +117,7 @@ def merge_model(model):
     end()
     return model
 
-def run_prompt(model, tokenizer, run_prompt, max_new_tokens=128):
+def run_prompt(model, tokenizer, run_prompt=None, max_new_tokens=128):
     results = []
     if run_prompt is not None:
         start("Testing given prompt", run_prompt)
