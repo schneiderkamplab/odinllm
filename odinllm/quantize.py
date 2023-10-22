@@ -16,7 +16,6 @@ def _quantize():
 @click.option("--device-map", "-m", default="auto")
 @parse_args
 def quantize(args):
-
     tokenizer = load_tokenizer(args.pretrained_model)
     model = load_and_quantize(
         args.pretrained_model,
@@ -27,8 +26,8 @@ def quantize(args):
         tokenizer=tokenizer,
         device_map=args.device_map,
     )
-    save_model(model, args.quantized_model, qualifier="quantized model")
     save_tokenizer(tokenizer, args.quantized_model)
+    save_model(model, args.quantized_model, qualifier="quantized model")
 
 if __name__ == "__main__":
     quantize()

@@ -38,6 +38,12 @@ def load_tokenizer(model_dir):
     end()
     return tokenizer
 
+def merge_model(model):
+    start("Merging LoRA adapter into pretrained model")
+    model = model.merge_and_unload()
+    end()
+    return model
+
 def run_prompt(model, tokenizer, run_prompt):
     results = []
     if run_prompt is not None:
