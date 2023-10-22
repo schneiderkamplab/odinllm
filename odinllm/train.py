@@ -1,8 +1,6 @@
 import click
 from contextlib import nullcontext
-from dataclasses import dataclass
 from datasets import load_dataset
-import datasets
 import os
 from peft import (
     get_peft_model,
@@ -10,16 +8,14 @@ from peft import (
     TaskType,
     prepare_model_for_kbit_training,
 )
-import torch
 from transformers import (
-    AutoModelForCausalLM,
-    AutoTokenizer,
     default_data_collator,
     Trainer,
     TrainingArguments,
 )
 
-from .utils import Concatenator, EXAMPLE_PROMPTS, FEATURES2PROMPT, end, parse_args, start, status
+from .shared import load_dataset, load_model, load_tokenizer, run_prompt, save_lora
+from .utils import Concatenator, FEATURES2PROMPT, end, parse_args, start
 
 @click.group()
 def _train():
@@ -33,38 +29,14 @@ def _train():
 @click.option("--max-steps", "-s", default=-1, type=int)
 @click.option("--dataset", "-d", default="samsum", type=str)
 @click.option("--concatenate/--no-concatenate", default=True)
+@click.option("--run-prompt", "-p", default=None, help="Prompt to run instead of example prompts")
 @click.option("--device-map", "-m", default="auto")
 @parse_args
 def train(args):
-
-    start("Loading tokenizer from", args.pretrained_model)
-    tokenizer = AutoTokenizer.from_pretrained(
-        args.pretrained_model,
-        padding_side="right",
-        truncation_side="right",
-    )
-    end()
-
-    start("Loading pretrained model from", args.pretrained_model)
-    model = AutoModelForCausalLM.from_pretrained(
-        args.pretrained_model,
-        device_map=args.device_map,
-        torch_dtype=torch.float16,
-    )
-    end()
-
-    start("Loading dataset from", args.dataset)
-    if os.path.isfile(args.dataset):
-        dataset = load_dataset("json", data_files=args.dataset, split="train")
-    else:
-        dataset = datasets.load_dataset(args.dataset, split="train")
-    end()
-
-    for key, prompt in EXAMPLE_PROMPTS.items():
-        start(f"Testing {key} prompt with pretrained model")
-        res = tokenizer.decode(model.generate(**tokenizer(prompt, return_tensors="pt").to(model.device),max_new_tokens=256)[0])
-        end(end='')
-        status(res)
+    tokenizer = load_tokenizer(args.pretrained_model)
+    model = load_model(args.pretrained_model, qualifier="pretrained model")
+    print(run_prompt(model, tokenizer))
+    dataset = load_dataset(args.dataset)
 
     start("Creating prompts from data")
     def apply_prompt_template(sample):
@@ -135,11 +107,7 @@ def train(args):
     model, lora_config = create_peft_config(model)
     end()
 
-    for key, prompt in EXAMPLE_PROMPTS.items():
-        start(f"Testing {key} prompt with PEFT model")
-        res = tokenizer.decode(model.generate(**tokenizer(prompt, return_tensors="pt").to(model.device),max_new_tokens=256)[0])
-        end(end='')
-        status(res)
+    print(run_prompt(model, tokenizer, run_prompt=args.run_prompt))
 
     start("Training")
     config = {
@@ -182,12 +150,5 @@ def train(args):
         trainer.train()
     end()
 
-    start("Saving LoRA adapter to", args.lora_model)
-    model.save_pretrained(args.lora_model)
-    end()
-
-    for key, prompt in EXAMPLE_PROMPTS.items():
-        start(f"Testing {key} prompt with trained PEFT model")
-        res = tokenizer.decode(model.generate(**tokenizer(prompt, return_tensors="pt").to(model.device),max_new_tokens=256)[0])
-        end(end='')
-        status(res)
+    save_lora(model, args.lora_model)
+    print(run_prompt(model, tokenizer, run_prompt=args.run_prompt))

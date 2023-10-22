@@ -14,11 +14,13 @@ def _infer():
 @parse_args
 def infer(args):
     tokenizer = load_tokenizer(args.pretrained_model)
-    model = load_model(args.pretrained_model, device_map=args.device_map)
-
+    model = load_model(
+        args.pretrained_model,
+        device_map=args.device_map,
+        qualifier="pretrained model",
+    )
     if args.lora_adapter is not None:
         model = load_lora(model, args.lora_adapter)
-
     print(run_prompt(model, tokenizer, args.run_prompt))
 
 if __name__ == "__main__":
