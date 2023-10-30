@@ -1,0 +1,6 @@
+auto-gptq
+bitsandbytes
+click
+optimum
+py7zr
+scipy

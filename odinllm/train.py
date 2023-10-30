@@ -10,6 +10,7 @@ from peft import (
 )
 from transformers import (
     default_data_collator,
+    DataCollatorForLanguageModeling,
     Trainer,
     TrainingArguments,
 )
@@ -29,13 +30,21 @@ def _train():
 @click.option("--max-steps", "-s", default=-1, type=int)
 @click.option("--dataset", "-d", default="samsum", type=str)
 @click.option("--concatenate/--no-concatenate", default=True)
+@click.option("--test/--no-test", default=True, help="Whehter to run inference with pretrained, PEFT, and trained model")
 @click.option("--run-prompt", "-p", default=None, help="Prompt to run instead of example prompts")
+@click.option("--load-in-4bit/--no-load-in-4bit", default=True)
 @click.option("--device-map", "-m", default="auto")
 @parse_args
 def train(args):
     tokenizer = load_tokenizer(args.pretrained_model)
-    model = load_model(args.pretrained_model, device_map=args.device_map, qualifier="pretrained model")
-    print(run_prompt(model, tokenizer))
+    model = load_model(
+        args.pretrained_model,
+        device_map=args.device_map,
+        qualifier="pretrained model",
+        load_in_4bit=args.load_in_4bit,
+    )
+    if args.test:
+        print(run_prompt(model, tokenizer))
     dataset = load_dataset(args.dataset)
     dataset = apply_templates(dataset, tokenizer)
     dataset = apply_tokenization(
@@ -67,7 +76,8 @@ def train(args):
     model, lora_config = create_peft_config(model)
     end()
 
-    print(run_prompt(model, tokenizer, run_prompt=args.run_prompt))
+    if args.test:
+        print(run_prompt(model, tokenizer, run_prompt=args.run_prompt))
 
     start("Training")
     config = {
@@ -89,7 +99,7 @@ def train(args):
         # logging strategies
         logging_dir=os.path.join(args.lora_model,"logs"),
         logging_strategy="steps",
-        logging_steps=100,
+        logging_steps=1,
         save_strategy="no",
         optim="adamw_torch_fused",
         max_steps=args.max_steps,
@@ -111,4 +121,5 @@ def train(args):
     end()
 
     save_lora(model, args.lora_model)
-    print(run_prompt(model, tokenizer, run_prompt=args.run_prompt))
+    if args.test:
+        print(run_prompt(model, tokenizer, run_prompt=args.run_prompt))
