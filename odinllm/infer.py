@@ -10,6 +10,7 @@ def _infer():
 @click.argument("pretrained-model", type=click.Path(exists=True))
 @click.option("--lora-adapter", "-l", default=None, help="Optional LoRA adapter to load with PEFT")
 @click.option("--run-prompt", "-p", default=None, help="Prompt to run instead of example prompts")
+@click.option("--load-in-4bit/--no-load-in-4bit", default=True)
 @click.option("--device-map", "-m", default="auto")
 @parse_args
 def infer(args):
@@ -18,6 +19,7 @@ def infer(args):
         args.pretrained_model,
         device_map=args.device_map,
         qualifier="pretrained model",
+        load_in_4bit=args.load_in_4bit,
     )
     if args.lora_adapter is not None:
         model = load_lora(model, args.lora_adapter)

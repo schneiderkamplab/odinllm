@@ -16,8 +16,8 @@ def _merge():
 @click.option("--device-map", "-m", default="auto")
 @parse_args
 def merge(args):
-    model = load_model(args.pretrained_model)
-    model = load_lora(args.lora_model)
+    model = load_model(args.pretrained_model, device_map=args.device_map, qualifier="pretrained model")
+    model = load_lora(model, args.lora_model)
     model = merge_model(model)
     save_model(model, args.merged_model, qualifier="merged model")
     tokenizer = load_tokenizer(args.pretrained_model)

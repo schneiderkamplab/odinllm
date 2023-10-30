@@ -70,7 +70,7 @@ A: He said he’d name it after his dead hamster – Lemmy  - he's  a great Moto
 EXAMPLE_PROMPTS = {
     "raw": "The main difference between a llama and alpaca is ",
     "sum": f"Summarize this dialog:\n{EXAMPLES['dia']}\n---\nSummary:\n",
-    "ins": f"Below is an instruction that describes a task, paired with an input that provides further context.\nWrite a response that appropriately completes the request.\n\n### Instruction:\nSummarize this dialog.\n\n### Input:\n{EXAMPLES['dia']}\n\n### Response:\n",
+    "ins": f"Below is an instruction that describes a task, paired with an input that provides further context. Write a response that appropriately completes the request.\n\n### Instruction:\nSummarize this dialog.\n\n### Input:\n{EXAMPLES['dia']}\n\n### Response:\n",
 }
 
 class Concatenator(object):

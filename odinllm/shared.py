@@ -90,12 +90,17 @@ def load_lora(model, lora_dir):
     end()
     return model
 
-def load_model(model_dir, device_map, qualifier, dtype=torch.float16):
+def load_model(model_dir, device_map, qualifier, dtype=torch.float16, load_in_4bit=False):
     start("Loading", qualifier, "from", model_dir)
+    kwargs = {
+        "load_in_4bit": True,
+        "bnb_4bit_compute_dtype": torch.float16,
+    } if load_in_4bit else {}
     model = AutoModelForCausalLM.from_pretrained(
         model_dir,
         device_map=device_map,
         torch_dtype=dtype,
+        **kwargs,
     )
     end()
     return model
