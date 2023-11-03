@@ -1,4 +1,5 @@
-* update README with different scenarios (lora, pseudo qlora)
+* update README with different scenarios (full training, lora, pseudo qlora)
+* create untrained model and tokenizer for training from scratch
 * print and compare tensors for base models, quantized models, (q)lora adapters, and merged models
 * fix training with gptq model (qlora)
 * see if other layers can be meaningfully LoRA'ed
