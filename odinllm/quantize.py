@@ -1,7 +1,25 @@
 import click
+from transformers import AutoModelForCausalLM, GPTQConfig
 
-from .shared import load_and_quantize, load_tokenizer, save_model, save_tokenizer
-from .utils import parse_args
+from .shared import load_tokenizer, save_model, save_tokenizer
+from .utils import end, parse_args, start
+
+def load_and_quantize(model_dir, bits, group_size, act_order, dataset, tokenizer, device_map):
+    start(
+        "Loading and quantizing model from", model_dir,
+        "to", bits, "bits with group size", group_size,
+        f"and {'' if act_order else 'no'} act order using dataset", dataset,
+    )
+    quantization_config = GPTQConfig(
+        bits=bits,
+        group_size=group_size,
+        desc_act=act_order,
+        dataset=dataset,
+        tokenizer=tokenizer,
+    )
+    model = AutoModelForCausalLM.from_pretrained(model_dir, quantization_config=quantization_config, device_map=device_map)
+    end()
+    return model
 
 @click.group()
 def _quantize():
@@ -9,8 +27,8 @@ def _quantize():
 @_quantize.command()
 @click.argument("pretrained-model", type=click.Path(exists=True))
 @click.argument("quantized-model", type=click.Path(exists=False))
-@click.option("--bits", "-b", default="4", type=click.Choice(["2","4","8"]))
-@click.option("--group-size", "-g", default="32", type=click.Choice([str(2**i) for i in range(11)]))
+@click.option("--bits", "-b", default=4, type=int)
+@click.option("--group-size", "-g", default=32, type=int)
 @click.option("--act-order/--no-act-order", default=False)
 @click.option("--dataset", "-d", default="c4")
 @click.option("--device-map", "-m", default="auto")

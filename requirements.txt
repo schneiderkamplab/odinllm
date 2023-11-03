@@ -4,3 +4,5 @@ click
 optimum
 py7zr
 scipy
+trl
+wandb

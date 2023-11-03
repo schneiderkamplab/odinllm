@@ -1,7 +1,22 @@
 import click
 
-from .shared import load_tokenizer, load_model, load_lora, run_prompt
-from .utils import parse_args
+from .shared import load_tokenizer, load_model, load_lora
+from .utils import EXAMPLE_PROMPTS, end, parse_args, start
+
+def run_prompt(model, tokenizer, run_prompt=None, max_new_tokens=128):
+    results = []
+    if run_prompt is not None:
+        start("Testing given prompt", run_prompt)
+        res = tokenizer.decode(model.generate(**tokenizer(run_prompt, return_tensors="pt").to(model.device),max_new_tokens=max_new_tokens)[0])
+        end()
+        results.append(res)
+    else:
+        for key, prompt in EXAMPLE_PROMPTS.items():
+            start(f"Testing {key} prompt")
+            res = tokenizer.decode(model.generate(**tokenizer(prompt, return_tensors="pt").to(model.device),max_new_tokens=max_new_tokens)[0])
+            end()
+            results.append(res)
+    return "\n>>>>>>>>> DIVIDER <<<<<<<<<\n".join(results)
 
 @click.group()
 def _infer():
