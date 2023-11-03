@@ -1,12 +1,12 @@
-from peft import AutoPeftModelForCausalLM
+from peft import PeftModel
 import torch
 from transformers import AutoModelForCausalLM, AutoTokenizer, BitsAndBytesConfig
 
-from .utils import end, start, status
+from .utils import chars_token_ratio, end, get_prepare_sample_text, start, status, trainable_parameters
 
 def load_lora(model, lora_dir):
     start("Loading LoRA adapter from", lora_dir)
-    model = AutoPeftModelForCausalLM.from_pretrained(model, lora_dir)
+    model = PeftModel.from_pretrained(model, lora_dir)
     end()
     return model
 
