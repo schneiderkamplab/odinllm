@@ -1,24 +1,20 @@
 from argparse import Namespace
-from itertools import chain
 import logging
 import time
+from tqdm import tqdm
 
+# logging
 logging.basicConfig(
     format="%(asctime)s %(levelname)s [%(name)s] %(message)s", level=logging.INFO, datefmt="%Y-%m-%d %H:%M:%S"
 )
 
+# arguments
 def parse_args(func):
-
     def parse(**kwargs):
         args = Namespace(**kwargs)
         if "device_map" in kwargs:
             args.device_map = parse_device_map(args.device_map)
-        if "bits" in kwargs:
-            args.bits = int(args.bits)
-        if "group_size" in kwargs:
-            args.group_size = int(args.group_size)
         return func(args)
-
     parse.__name__ = func.__name__
     return parse
 
@@ -29,6 +25,7 @@ def parse_device_map(device_map):
         return eval(device_map)
     return device_map
 
+# prompt templates
 FEATURES2PROMPT = {
     ("dialogue", "id", "summary"): (
         "Below is an instruction that describes a task, paired with an input that provides further context. "
@@ -48,6 +45,24 @@ FEATURES2PROMPT = {
     ("text"): "{text}",
 }
 
+def get_prepare_sample_text(tokenizer):
+    def prepare_sample_text(sample):
+        sample_clean = {k: v for k, v in sample.items() if v.strip()}
+        features = tuple(sorted(sample_clean.keys()))
+        prompt = FEATURES2PROMPT.get(features, None)
+        if prompt is None:
+            features = tuple(sorted(sample.keys()))
+            prompt = FEATURES2PROMPT.get(features, None)
+            if prompt is None:
+                raise RuntimeError(f"no prompt template for feature combination {features} for sample {sample}")
+            sample_clean = sample
+        return prompt.format(
+            eos_token=tokenizer.eos_token,
+            **sample_clean,
+        )
+    return prepare_sample_text
+
+# example prompts
 EXAMPLES = {
     "dia": """A: Hi Tom, are you busy tomorrow’s afternoon?
 B: I’m pretty sure I am. What’s up?
@@ -73,38 +88,27 @@ EXAMPLE_PROMPTS = {
     "ins": f"Below is an instruction that describes a task, paired with an input that provides further context. Write a response that appropriately completes the request.\n\n### Instruction:\nSummarize this dialog.\n\n### Input:\n{EXAMPLES['dia']}\n\n### Response:\n",
 }
 
-class Concatenator(object):
-    def __init__(self, chunk_size=2048):
-        self.chunk_size=chunk_size
-        self.residual = {"input_ids": [], "attention_mask": []}
-
-    def __call__(self, batch):
-        concatenated_samples = {
-            k: v + list(chain(*batch[k])) for k, v in self.residual.items()
-        }
-
-        total_length = len(concatenated_samples[list(concatenated_samples.keys())[0]])
-
-        if total_length >= self.chunk_size:
-            chunk_num = total_length // self.chunk_size
-            result = {
-                k: [
-                    v[i : i + self.chunk_size]
-                    for i in range(0, chunk_num * self.chunk_size, self.chunk_size)
-                ]
-                for k, v in concatenated_samples.items()
-            }
-            self.residual = {
-                k: v[(chunk_num * self.chunk_size) :]
-                for k, v in concatenated_samples.items()
-            }
+# stats
+def chars_token_ratio(dataset, tokenizer, prepare_sample_text, nb_examples=400):
+    total_characters, total_tokens = 0, 0
+    for _, example in tqdm(zip(range(nb_examples), iter(dataset)), total=nb_examples):
+        text = prepare_sample_text(example)
+        total_characters += len(text)
+        if tokenizer.is_fast:
+            total_tokens += len(tokenizer(text).tokens())
         else:
-            result = concatenated_samples
-            self.residual = {k: [] for k in concatenated_samples.keys()}
+            total_tokens += len(tokenizer.tokenize(text))
 
-        result["labels"] = result["input_ids"].copy()
+    return total_characters / total_tokens
 
-        return result
+def trainable_parameters(model):
+    trainable_params = 0
+    all_param = 0
+    for _, param in model.named_parameters():
+        all_param += param.numel()
+        if param.requires_grad:
+            trainable_params += param.numel()
+    return trainable_params, all_param
 
 # progress
 started = 0

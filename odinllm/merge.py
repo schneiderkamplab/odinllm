@@ -1,10 +1,12 @@
 import click
-from peft import PeftModel
-import torch
-from transformers import AutoModelForCausalLM, AutoTokenizer
-
-from .shared import load_lora, load_model, load_tokenizer, merge_model, save_model, save_tokenizer
+from .shared import load_lora, load_model, load_tokenizer, save_model, save_tokenizer
 from .utils import end, parse_args, start
+
+def merge_model(model):
+    start("Merging LoRA adapter into pretrained model")
+    model = model.merge_and_unload()
+    end()
+    return model
 
 @click.group()
 def _merge():
@@ -16,9 +18,9 @@ def _merge():
 @click.option("--device-map", "-m", default="auto")
 @parse_args
 def merge(args):
-    model = load_model(args.pretrained_model, device_map=args.device_map, qualifier="pretrained model")
-    model = load_lora(model, args.lora_model)
-    model = merge_model(model)
-    save_model(model, args.merged_model, qualifier="merged model")
+    base_model = load_model(args.pretrained_model, device_map=args.device_map, qualifier="pretrained model", load_in_4bit=False)
+    lora_model = load_lora(base_model, args.lora_model)
+    merged_model = merge_model(lora_model)
+    save_model(merged_model, args.merged_model, qualifier="merged model")
     tokenizer = load_tokenizer(args.pretrained_model)
     save_tokenizer(tokenizer, args.merged_model)
