@@ -22,8 +22,8 @@ def get_peft_config():
 
 def do_train(trainer, output_dir):
     start("Supervised fine tuning")
-    trainable_params, all_param = trainable_parameters(trainer.model)
-    status(f"#trainable-params: {trainable_params}; #all-params: {all_param}; %trainable: {100 * trainable_params / all_param}", end='')
+    trainable_params, all_params = trainable_parameters(trainer.model)
+    status(f"#trainable-params: {trainable_params}; #all-params: {all_params}; %trainable: {100 * trainable_params / all_params}", end='')
     trainer.train()
     trainer.save_model(output_dir)
     end()
@@ -33,7 +33,7 @@ def get_training_args(output_dir, qualifier, max_steps, per_device_train_batch_s
         output_dir=output_dir,
         max_steps=max_steps,
         logging_steps=10,
-        save_steps=10,
+        save_steps=100,
         save_total_limit = 1,
         per_device_train_batch_size=per_device_train_batch_size,
         per_device_eval_batch_size=1,
@@ -113,7 +113,6 @@ def _train():
 @click.option("--max-steps", "-s", default=-1, type=int)
 @click.option("--gradient-accumulation-steps", "-g", default=1, type=int)
 @click.option("--per-device-train-batch-size", "-b", default=1, type=int)
-@click.option("--max-steps", "-s", default=-1, type=int)
 @click.option("--dataset", "-d", default="samsum", type=str)
 @click.option("--packing/--no-packing", default=True)
 @click.option("--load-in-4bit/--no-load-in-4bit", default=True)

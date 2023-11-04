@@ -11,9 +11,16 @@ logging.basicConfig(
 # arguments
 def parse_args(func):
     def parse(**kwargs):
+        for key in kwargs:
+            if key == "device_map":
+                kwargs[key] = parse_device_map(kwargs[key])
+            if key.endswith("_class"):
+                import transformers
+                kwargs[key] = eval(f"transformers.{kwargs[key]}")
+            if key.endswith("_dtype"):
+                import torch
+                kwargs[key] = eval(f"torch.{kwargs[key]}")
         args = Namespace(**kwargs)
-        if "device_map" in kwargs:
-            args.device_map = parse_device_map(args.device_map)
         return func(args)
     parse.__name__ = func.__name__
     return parse
@@ -42,7 +49,7 @@ FEATURES2PROMPT = {
         "Write a response that appropriately completes the request.\n\n"
         "### Instruction:\n{instruction}\n\n### Response:\n{output}{eos_token}"
     ),
-    ("text"): "{text}",
+    ("text",): "{text}",
 }
 
 def get_prepare_sample_text(tokenizer):
@@ -103,12 +110,12 @@ def chars_token_ratio(dataset, tokenizer, prepare_sample_text, nb_examples=400):
 
 def trainable_parameters(model):
     trainable_params = 0
-    all_param = 0
+    all_params = 0
     for _, param in model.named_parameters():
-        all_param += param.numel()
+        all_params += param.numel()
         if param.requires_grad:
             trainable_params += param.numel()
-    return trainable_params, all_param
+    return trainable_params, all_params
 
 # progress
 started = 0
