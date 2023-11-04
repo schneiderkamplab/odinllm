@@ -1,4 +1,5 @@
-* update README with different scenarios (full training, lora, pseudo qlora)
+* update README with different scenarios (full training, lora, pseudo qlora, pre-training)
+* add convert command to convert between e.g. jsonl and json
 * create untrained model and tokenizer for training from scratch
 * print and compare tensors for base models, quantized models, (q)lora adapters, and merged models
 * fix training with gptq model (qlora)
@@ -7,6 +8,5 @@
 * quantized adapter and merge with quantized model (qalora)
 * quantization-aware training (llm-qat)
 * figure out device maps such that CUDA_VISIBLE_DEVICES is not needed
-* use datacollatorforlanguagemodelling instead of concatenator
 * more parameters (e.g. LoRA parameters, training parameters)
 * implement test suite

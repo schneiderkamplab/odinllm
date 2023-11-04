@@ -4,5 +4,6 @@ click
 optimum
 py7zr
 scipy
+sentencepiece
 trl
 wandb

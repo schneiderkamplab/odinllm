@@ -1,6 +1,7 @@
 import click
 
 from .infer import _infer
+from .init import _init
 from .merge import _merge
 from .quantize import _quantize
 from .snapshot import _snapshot
@@ -8,6 +9,7 @@ from .train import _train
 
 cli = click.CommandCollection(sources=[
     _infer,
+    _init,
     _merge,
     _quantize,
     _snapshot,
