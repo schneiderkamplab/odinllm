@@ -6,15 +6,23 @@ from transformers import TrainingArguments
 from trl import SFTTrainer
 from trl.trainer import ConstantLengthDataset
 
-from .shared import load_model, load_tokenizer
+from .shared import load_model, load_tokenizer, save_metadata
 from .utils import chars_token_ratio, end, get_prepare_sample_text, parse_args, start, status, trainable_parameters
 
-def get_peft_config():
+def get_peft_config(model, target_modules):
+    start("Target modules")
+    if not target_modules:
+        target_modules = set()
+        for name, module in model.named_modules():
+            if type(module).__name__ in ("Linear", "Linear4bit"):
+                target_modules.add(name.split(".")[-1])
+        target_modules = list(target_modules)
+    status(target_modules)
     config = LoraConfig(
         r=8,
         lora_alpha=16,
         lora_dropout=0.05,
-        target_modules=["q_proj", "v_proj"],
+        target_modules=target_modules,
         bias="none",
         task_type="CAUSAL_LM",
     )
@@ -28,13 +36,18 @@ def do_train(trainer, output_dir):
     trainer.save_model(output_dir)
     end()
 
-def get_training_args(output_dir, qualifier, max_steps, per_device_train_batch_size, gradient_accumulation_steps):
+def get_training_args(output_dir, qualifier, max_steps, per_device_train_batch_size, gradient_accumulation_steps, num_train_epochs):
     training_arguments = TrainingArguments(
         output_dir=output_dir,
         max_steps=max_steps,
-        logging_steps=10,
-        save_steps=100,
-        save_total_limit = 1,
+        logging_steps=100,
+        save_steps=1000,
+        save_total_limit=1,
+        load_best_model_at_end=True,
+        eval_steps=1000,
+        do_eval=True,
+        evaluation_strategy="steps",
+        num_train_epochs=num_train_epochs,
         per_device_train_batch_size=per_device_train_batch_size,
         per_device_eval_batch_size=1,
         gradient_accumulation_steps=gradient_accumulation_steps,
@@ -75,7 +88,7 @@ def load_datasets(tokenizer, dataset_name, split, num_workers, streaming, size_v
         train_data = dataset.skip(size_valid_set)
         train_data = train_data.shuffle(buffer_size=shuffle_buffer, seed=None)
     else:
-        dataset = dataset.train_test_split(test_size=0.005, seed=None)
+        dataset = dataset.train_test_split(test_size=100, seed=42)
         train_data = dataset["train"]
         valid_data = dataset["test"]
         status(f"#train: {len(train_data)}; #eval: {len(valid_data)}", end='')
@@ -123,6 +136,8 @@ def _train():
 @click.option("--size-valid-set", default=4000, type=int)
 @click.option("--shuffle-buffer", default=5000, type=int)
 @click.option("--seq-length", default=1024, type=int)
+@click.option("--target-modules", default="['q_proj', 'v_proj']", type=str)
+@click.option("--num-train-epochs", default=3, type=int)
 @parse_args
 def train(args):
     if not args.peft and args.load_in_4bit:
@@ -134,7 +149,7 @@ def train(args):
         qualifier="pretrained model",
         load_in_4bit=args.load_in_4bit,
     )
-    peft_config = get_peft_config() if args.peft else None
+    peft_config = get_peft_config(model, args.target_modules) if args.peft else None
     tokenizer = load_tokenizer(args.pretrained_model)
     training_args = get_training_args(
         output_dir=args.output_dir,
@@ -142,6 +157,7 @@ def train(args):
         max_steps=args.max_steps,
         per_device_train_batch_size=args.per_device_train_batch_size,
         gradient_accumulation_steps=args.gradient_accumulation_steps,
+        num_train_epochs=args.num_train_epochs,
     )
     train_dataset, eval_dataset = load_datasets(
         tokenizer=tokenizer,
@@ -167,3 +183,4 @@ def train(args):
         trainer,
         output_dir=args.output_dir,
     )
+    save_metadata(model.metadata, args, args.output_dir)

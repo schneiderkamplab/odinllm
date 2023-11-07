@@ -1,14 +1,25 @@
+import json
+import os
 from peft import PeftModel
 import torch
 from transformers import AutoModelForCausalLM, AutoTokenizer, BitsAndBytesConfig
 
-from .utils import chars_token_ratio, end, get_prepare_sample_text, start, status, trainable_parameters
+from .utils import end, metadata_filename, start, status, unparse_args
 
 def load_lora(model, lora_dir):
     start("Loading LoRA adapter from", lora_dir)
     model = PeftModel.from_pretrained(model, lora_dir)
+    assert "metadata" not in model.__dict__
+    model.metadata = load_metadata(lora_dir)
     end()
     return model
+
+def load_metadata(dir):
+    meta = metadata_filename(dir)
+    if os.path.isfile(meta):
+        with open(meta, "rt") as f:
+            return json.load(f)
+    return []
 
 def load_model(model_dir, device_map, qualifier, load_in_4bit):
     start("Loading", qualifier, "from", model_dir, "with device map", device_map)
@@ -25,6 +36,8 @@ def load_model(model_dir, device_map, qualifier, load_in_4bit):
     )
     model.config.use_cache = False
     status(model.device)
+    assert "metadata" not in model.__dict__
+    model.metadata = load_metadata(model_dir)
     end()
     return model
 
@@ -39,6 +52,11 @@ def load_tokenizer(model_dir):
     tokenizer.pad_token = tokenizer.eos_token
     end()
     return tokenizer
+
+def save_metadata(metadata, args, model_dir):
+    metadata.append(unparse_args(args))
+    with open(metadata_filename(model_dir), "wt") as f:
+        json.dump(metadata, f, indent=2)
 
 def save_model(model, model_dir, qualifier):
     start("Saving", qualifier, "to", model_dir)

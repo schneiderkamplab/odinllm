@@ -1,9 +1,9 @@
 import click
-import json
-import sys
+from datasets import load_dataset
+import os
 import torch
 
-from .shared import save_model, save_tokenizer
+from .shared import save_metadata, save_model, save_tokenizer
 from .utils import end, parse_args, start, status, trainable_parameters
 
 def get_model_config(args):
@@ -25,15 +25,28 @@ def init_model(model_class, model_config):
     model = model.to(torch.bfloat16)
     _, all_params = trainable_parameters(model)
     status(f"#params: {all_params}", end='')
+    assert "metadata" not in model.__dict__
+    model.metadata = []
     end()
     return model
 
-def init_tokenizer(tokenizer_class, tokenizer_template, vocab_size, min_frequency):
+def init_tokenizer(tokenizer_class, tokenizer_template, vocab_size, min_frequency, corpora):
     start("Training tokenizer")
     old_tokenizer = tokenizer_class.from_pretrained(tokenizer_template)
     def iterator():
-        for line in sys.stdin:
-            yield json.loads(line)['text']
+        for dataset_name in corpora:
+            status(dataset_name)
+            if os.path.isfile(dataset_name):
+                dataset = load_dataset("json", data_files=dataset_name)
+            else:
+                dataset = load_dataset(dataset_name)
+            for split, column_names in dataset.column_names.items():
+                ds = dataset[split]
+                for column_name in column_names:
+                    column = ds[column_name]
+                    for item in column:
+                        if isinstance(item, str):
+                            yield item
     tokenizer = old_tokenizer.train_new_from_iterator(
         iterator(),
         vocab_size=vocab_size,
@@ -47,6 +60,7 @@ def _init():
     pass
 @_init.command()
 @click.argument("untrained-model", type=str)
+@click.argument("corpora", type=click.Path(exists=True), nargs=-1)
 @click.option("--tokenizer-class", default="LlamaTokenizerFast", type=str)
 @click.option("--tokenizer-template", default="meta-llama/Llama-2-7b-hf", type=str)
 @click.option("--config-class", default="LlamaConfig", type=str)
@@ -73,5 +87,7 @@ def init(args):
         tokenizer_template=args.tokenizer_template,
         vocab_size=model.config.vocab_size,
         min_frequency=args.tokenizer_min_frequency,
+        corpora=args.corpora,
     )
     save_tokenizer(tokenizer, args.untrained_model)
+    save_metadata(model.metadata, args, args.untrained_model)
