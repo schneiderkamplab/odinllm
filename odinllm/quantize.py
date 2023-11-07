@@ -1,7 +1,7 @@
 import click
 from transformers import AutoModelForCausalLM, GPTQConfig
 
-from .shared import load_tokenizer, save_model, save_tokenizer
+from .shared import load_metadata, load_tokenizer, save_model, save_tokenizer
 from .utils import end, parse_args, start
 
 def load_and_quantize(model_dir, bits, group_size, act_order, dataset, tokenizer, device_map):
@@ -18,6 +18,8 @@ def load_and_quantize(model_dir, bits, group_size, act_order, dataset, tokenizer
         tokenizer=tokenizer,
     )
     model = AutoModelForCausalLM.from_pretrained(model_dir, quantization_config=quantization_config, device_map=device_map)
+    assert "metadata" not in model.__dict__
+    model.metadata = load_metadata(model_dir)
     end()
     return model
 

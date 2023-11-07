@@ -1,5 +1,7 @@
 from argparse import Namespace
 import logging
+import os
+import sys
 import time
 from tqdm import tqdm
 
@@ -9,17 +11,25 @@ logging.basicConfig(
 )
 
 # arguments
+def update_key(kwargs, key, val):
+    kwargs["_"+key] = kwargs[key]
+    kwargs[key] = val
+
 def parse_args(func):
     def parse(**kwargs):
-        for key in kwargs:
+        for key in list(kwargs.keys()):
             if key == "device_map":
-                kwargs[key] = parse_device_map(kwargs[key])
-            if key.endswith("_class"):
+                update_key(kwargs, key, parse_device_map(kwargs[key]))
+            elif key == "target_modules":
+                update_key(kwargs, key, eval(kwargs[key]))
+            elif key.endswith("_class"):
                 import transformers
-                kwargs[key] = eval(f"transformers.{kwargs[key]}")
-            if key.endswith("_dtype"):
+                update_key(kwargs, key, eval(f"transformers.{kwargs[key]}"))
+            elif key.endswith("_dtype"):
                 import torch
-                kwargs[key] = eval(f"torch.{kwargs[key]}")
+                update_key(kwargs, key, eval(f"torch.{kwargs[key]}"))
+        kwargs["command"] = func.__name__
+        kwargs["argv"] = sys.argv
         args = Namespace(**kwargs)
         return func(args)
     parse.__name__ = func.__name__
@@ -31,6 +41,13 @@ def parse_device_map(device_map):
     if device_map.strip().startswith("{"):
         return eval(device_map)
     return device_map
+
+def unparse_args(original_args):
+    args = dict(vars(original_args))
+    for key in [key for key in args if key.startswith("_")]:
+        args[key[1:]] = args[key]
+        del args[key]
+    return args
 
 # prompt templates
 FEATURES2PROMPT = {
@@ -135,3 +152,9 @@ def status(msg,end='\n'):
 def file_size(file_name,end='\n'):
     from os import stat
     print("%.0fK" % (stat(file_name).st_size/1024),end=end,flush=True)
+
+# metadata
+METADATA_FILENAME="metadata.json"
+
+def metadata_filename(dir):
+    return os.path.join(dir, METADATA_FILENAME)

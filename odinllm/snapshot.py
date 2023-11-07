@@ -3,6 +3,7 @@ from huggingface_hub import  hf_hub_download, snapshot_download
 from os import getcwd
 from shutil import copy, copytree
 
+from .shared import save_metadata
 from .utils import end, parse_args, start
 
 @click.group()
@@ -17,8 +18,10 @@ def snapshot(args):
         start("Snapshotting repository", args.repo_id)
         cache_dirname = snapshot_download(repo_id=args.repo_id)
         end()
-        start("Copying repository from", cache_dirname, "to", args.repo_id.split("/")[-1])
-        copytree(cache_dirname, args.repo_id.split("/")[-1])
+        repo_dir = args.repo_id.split("/")[-1]
+        start("Copying repository from", cache_dirname, "to", repo_dir)
+        copytree(cache_dirname, repo_dir)
+        save_metadata([], args, repo_dir)
         end()
     else:
         for file_name in args.file_name:

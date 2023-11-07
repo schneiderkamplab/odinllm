@@ -7,3 +7,4 @@ scipy
 sentencepiece
 trl
 wandb
+zstandard
