@@ -2,12 +2,29 @@ import click
 from datasets import load_dataset
 import os
 from peft import LoraConfig
-from transformers import TrainingArguments
+from transformers import EarlyStoppingCallback,TrainerCallback, TrainingArguments
 from trl import SFTTrainer
 from trl.trainer import ConstantLengthDataset
 
 from .shared import load_model, load_tokenizer, save_metadata
 from .utils import chars_token_ratio, end, get_prepare_sample_text, parse_args, start, status, trainable_parameters
+
+class MetadataSavingCallback(TrainerCallback):
+    def __init__(self, args):
+        self.args = args
+    def on_save(self, args, state, _, **kwargs):
+        if args.should_save:
+            checkpoint_path = os.path.join(args.output_dir, f"checkpoint-{state.global_step}")
+            save_metadata(kwargs["model"].metadata, self.args, checkpoint_path)
+            latest_link = os.path.join(args.output_dir, "latest")
+            if os.path.islink(latest_link):
+                os.remove(latest_link)
+            os.symlink(checkpoint_path, latest_link)
+            if args.load_best_model_at_end:
+                best_link = os.path.join(args.output_dir, "best")
+                if os.path.islink(best_link):
+                    os.remove(best_link)
+                os.symlink(state.best_model_checkpoint, best_link)
 
 def get_peft_config(model, target_modules):
     start("Target modules")
@@ -36,15 +53,27 @@ def do_train(trainer, output_dir):
     trainer.save_model(output_dir)
     end()
 
-def get_training_args(output_dir, qualifier, max_steps, per_device_train_batch_size, gradient_accumulation_steps, num_train_epochs):
+def get_training_args(
+    output_dir,
+    qualifier,
+    max_steps,
+    logging_steps,
+    eval_steps,
+    save_steps,
+    per_device_train_batch_size,
+    gradient_accumulation_steps,
+    num_train_epochs,
+    save_total_limit,
+    load_best_model_at_end,
+):
     training_arguments = TrainingArguments(
         output_dir=output_dir,
         max_steps=max_steps,
-        logging_steps=100,
-        save_steps=1000,
-        save_total_limit=1,
-        load_best_model_at_end=True,
-        eval_steps=1000,
+        logging_steps=logging_steps,
+        save_steps=save_steps,
+        save_total_limit=save_total_limit,
+        load_best_model_at_end=load_best_model_at_end,
+        eval_steps=eval_steps,
         do_eval=True,
         evaluation_strategy="steps",
         num_train_epochs=num_train_epochs,
@@ -65,7 +94,7 @@ def get_training_args(output_dir, qualifier, max_steps, per_device_train_batch_s
     )
     return training_arguments    
 
-def load_datasets(tokenizer, dataset_name, split, num_workers, streaming, size_valid_set, shuffle_buffer, seq_length):
+def load_datasets(tokenizer, dataset_name, split, num_workers, streaming, size_valid_set, shuffle_buffer, seq_length, test_size):
     start("Loading dataset from", dataset_name)
     if os.path.isfile(dataset_name):
         dataset = load_dataset(
@@ -88,7 +117,7 @@ def load_datasets(tokenizer, dataset_name, split, num_workers, streaming, size_v
         train_data = dataset.skip(size_valid_set)
         train_data = train_data.shuffle(buffer_size=shuffle_buffer, seed=None)
     else:
-        dataset = dataset.train_test_split(test_size=100, seed=42)
+        dataset = dataset.train_test_split(test_size=test_size, seed=42)
         train_data = dataset["train"]
         valid_data = dataset["test"]
         status(f"#train: {len(train_data)}; #eval: {len(valid_data)}", end='')
@@ -124,6 +153,9 @@ def _train():
 @click.argument("output-dir", type=click.Path(exists=False))
 @click.option("--peft/--no-peft", default=True)
 @click.option("--max-steps", "-s", default=-1, type=int)
+@click.option("--logging-steps", default=100, type=int)
+@click.option("--eval-steps", default=1000, type=int)
+@click.option("--save-steps", default=1000, type=int)
 @click.option("--gradient-accumulation-steps", "-g", default=1, type=int)
 @click.option("--per-device-train-batch-size", "-b", default=1, type=int)
 @click.option("--dataset", "-d", default="samsum", type=str)
@@ -138,6 +170,10 @@ def _train():
 @click.option("--seq-length", default=1024, type=int)
 @click.option("--target-modules", default="['q_proj', 'v_proj']", type=str)
 @click.option("--num-train-epochs", default=3, type=int)
+@click.option("--early-stopping-patience", default=0, type=int)
+@click.option("--save-total-limit", default=1, type=int)
+@click.option("--load-best-model-at-end", default=True)
+@click.option("--test-size", default=100, type=int)
 @parse_args
 def train(args):
     if not args.peft and args.load_in_4bit:
@@ -155,9 +191,14 @@ def train(args):
         output_dir=args.output_dir,
         qualifier="train",
         max_steps=args.max_steps,
+        logging_steps=args.logging_steps,
+        eval_steps=args.eval_steps,
+        save_steps=args.save_steps,
         per_device_train_batch_size=args.per_device_train_batch_size,
         gradient_accumulation_steps=args.gradient_accumulation_steps,
         num_train_epochs=args.num_train_epochs,
+        save_total_limit=args.save_total_limit,
+        load_best_model_at_end=args.load_best_model_at_end,
     )
     train_dataset, eval_dataset = load_datasets(
         tokenizer=tokenizer,
@@ -168,7 +209,11 @@ def train(args):
         size_valid_set=args.size_valid_set,
         shuffle_buffer=args.shuffle_buffer,
         seq_length=args.seq_length,
+        test_size=args.test_size,
     )
+    callbacks = [MetadataSavingCallback(args)]
+    if args.early_stopping_patience:
+        callbacks.append(EarlyStoppingCallback(early_stopping_patience=args.early_stopping_patience))
     trainer = SFTTrainer(
         model=model,
         train_dataset=train_dataset,
@@ -178,6 +223,7 @@ def train(args):
         max_seq_length=args.seq_length,
         tokenizer=tokenizer,
         args=training_args,
+        callbacks=callbacks,
     )
     do_train(
         trainer,
