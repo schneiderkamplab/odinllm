@@ -12,13 +12,14 @@ def _snapshot():
 @_snapshot.command()
 @click.argument("repo-id", type=str)
 @click.option("--file-name", default=[], type=str, multiple=True)
+@click.option("--target-dir", default=None, type=str)
 @parse_args
 def snapshot(args):
     if not args.file_name:
         start("Snapshotting repository", args.repo_id)
         cache_dirname = snapshot_download(repo_id=args.repo_id)
         end()
-        repo_dir = args.repo_id.split("/")[-1]
+        repo_dir = args.repo_id.split("/")[-1] if args.target_dir is None else args.target_dir
         start("Copying repository from", cache_dirname, "to", repo_dir)
         copytree(cache_dirname, repo_dir)
         save_metadata([], args, repo_dir)
