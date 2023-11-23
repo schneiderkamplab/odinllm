@@ -33,6 +33,7 @@ def load_model(model_dir, device_map, qualifier, load_in_4bit):
         quantization_config=bnb_config,
         device_map=device_map,
         trust_remote_code=True,
+        torch_dtype=torch.bfloat16,
     )
     model.config.use_cache = False
     status(model.device)

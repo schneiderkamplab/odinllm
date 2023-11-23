@@ -30,7 +30,7 @@ def finalize(args):
                 args.checkpoint = candidates[0]
             else:
                 raise ValueError("Could not determine checkpoint automatically")
-    checkpoint_dir = os.path.join(args.training_dir, str(args.checkpoint))
+    checkpoint_dir = os.path.join(args.training_dir, f"checkpoint-{args.checkpoint}")
     status(checkpoint_dir)
     if args.base_model is None:
         model = load_model(
@@ -51,5 +51,5 @@ def finalize(args):
     tokenizer = load_tokenizer(checkpoint_dir)
     save_tokenizer(tokenizer, args.training_dir)
     training_args = torch.load(os.path.join(checkpoint_dir, "training_args.bin"))
-    torch.save(training_args, os.path.join(args.training_dir), "training_args.bin")
+    torch.save(training_args, os.path.join(args.training_dir, "training_args.bin"))
     save_metadata(model.metada, args, args.training_dir)
