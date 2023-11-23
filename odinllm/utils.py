@@ -66,11 +66,18 @@ FEATURES2PROMPT = {
         "Write a response that appropriately completes the request.\n\n"
         "### Instruction:\n{instruction}\n\n### Response:\n{output}{eos_token}"
     ),
+    ("correct", "incorrect"): (
+        "Below is an instruction that describes a task. "
+        "Write a response that appropriately completes the request.\n\n"
+        "### Instruction:\nPlease correct the following text.\n\n###Input:\n{incorrect}\n\n### Response:\n{correct}{eos_token}"
+    ),
     ("text",): "{text}",
 }
 
 def get_prepare_sample_text(tokenizer):
     def prepare_sample_text(sample):
+        if "text" in sample:
+            sample = {"text": sample["text"]}
         sample_clean = {k: v for k, v in sample.items() if v.strip()}
         features = tuple(sorted(sample_clean.keys()))
         prompt = FEATURES2PROMPT.get(features, None)

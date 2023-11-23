@@ -26,7 +26,7 @@ class MetadataSavingCallback(TrainerCallback):
                     os.remove(best_link)
                 os.symlink(state.best_model_checkpoint, best_link)
 
-def get_peft_config(model, target_modules):
+def get_peft_config(model, target_modules, lora_r, lora_alpha):
     start("Target modules")
     if not target_modules:
         target_modules = set()
@@ -36,8 +36,8 @@ def get_peft_config(model, target_modules):
         target_modules = list(target_modules)
     status(target_modules)
     config = LoraConfig(
-        r=8,
-        lora_alpha=16,
+        r=lora_r,
+        lora_alpha=lora_alpha,
         lora_dropout=0.05,
         target_modules=target_modules,
         bias="none",
@@ -49,7 +49,9 @@ def do_train(trainer, output_dir):
     start("Supervised fine tuning")
     trainable_params, all_params = trainable_parameters(trainer.model)
     status(f"#trainable-params: {trainable_params}; #all-params: {all_params}; %trainable: {100 * trainable_params / all_params}", end='')
+    print(trainer.evaluate())
     trainer.train()
+    print(trainer.evaluate())
     trainer.save_model(output_dir)
     end()
 
@@ -168,9 +170,11 @@ def _train():
 @click.option("--size-valid-set", default=4000, type=int)
 @click.option("--shuffle-buffer", default=5000, type=int)
 @click.option("--seq-length", default=1024, type=int)
-@click.option("--target-modules", default="['q_proj', 'v_proj']", type=str)
+@click.option("--lora-r", default=8, type=int)
+@click.option("--lora-alpha", default=16, type=int)
+@click.option("--target-modules", default="[]", type=str)
 @click.option("--num-train-epochs", default=3, type=int)
-@click.option("--early-stopping-patience", default=0, type=int)
+@click.option("--early-stopping-patience", default=10, type=int)
 @click.option("--save-total-limit", default=1, type=int)
 @click.option("--load-best-model-at-end", default=True)
 @click.option("--test-size", default=100, type=int)
@@ -185,7 +189,12 @@ def train(args):
         qualifier="pretrained model",
         load_in_4bit=args.load_in_4bit,
     )
-    peft_config = get_peft_config(model, args.target_modules) if args.peft else None
+    peft_config = get_peft_config(
+        model=model,
+        target_modules=args.target_modules,
+        lora_r=args.lora_r,
+        lora_alpha=args.lora_alpha,
+    ) if args.peft else None
     tokenizer = load_tokenizer(args.pretrained_model)
     training_args = get_training_args(
         output_dir=args.output_dir,
@@ -225,8 +234,8 @@ def train(args):
         args=training_args,
         callbacks=callbacks,
     )
+    save_metadata(model.metadata, args, args.output_dir)
     do_train(
         trainer,
         output_dir=args.output_dir,
     )
-    save_metadata(model.metadata, args, args.output_dir)
