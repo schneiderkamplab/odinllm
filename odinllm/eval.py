@@ -1,24 +1,20 @@
 import click
-from datasets import load_dataset
-import os
-from peft import LoraConfig
-from transformers import EarlyStoppingCallback,TrainerCallback, TrainingArguments
+from transformers import TrainingArguments
 from trl import SFTTrainer
-from trl.trainer import ConstantLengthDataset
 
 from .shared import load_model, load_tokenizer
 from .train import load_datasets
-from .utils import chars_token_ratio, end, get_prepare_sample_text, parse_args, start, status
+from .utils import end, parse_args, start
 
 def do_eval(trainer):
     start("Evaluating")
     print(trainer.evaluate())
     end()
 
-def get_training_args():
+def get_training_args(per_device_eval_batch_size):
     training_arguments = TrainingArguments(
         output_dir="ignore",
-        per_device_eval_batch_size=1,
+        per_device_eval_batch_size=per_device_eval_batch_size,
         bf16=True,
         remove_unused_columns=False,
         report_to=None,
@@ -30,6 +26,7 @@ def _eval():
     pass
 @_eval.command()
 @click.argument("pretrained-model", type=click.Path(exists=True))
+@click.option("--per-device-eval-batch-size", default=1, type=int)
 @click.option("--dataset", "-d", default="samsum", type=str)
 @click.option("--packing/--no-packing", default=True)
 @click.option("--load-in-4bit/--no-load-in-4bit", default=True)
@@ -50,7 +47,9 @@ def eval(args):
         load_in_4bit=args.load_in_4bit,
     )
     tokenizer = load_tokenizer(args.pretrained_model)
-    training_args = get_training_args()
+    training_args = get_training_args(
+        per_device_eval_batch_size=args.per_device_eval_batch_size,
+    )
     train_dataset, eval_dataset = load_datasets(
         tokenizer=tokenizer,
         dataset_name=args.dataset,
