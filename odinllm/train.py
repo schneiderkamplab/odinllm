@@ -161,17 +161,19 @@ def _train():
 @click.option("--gradient-accumulation-steps", "-g", default=1, type=int)
 @click.option("--per-device-train-batch-size", "-b", default=1, type=int)
 @click.option("--dataset", "-d", default="samsum", type=str)
+@click.option("--eval-dataset", "-e", default=None, type=str)
 @click.option("--packing/--no-packing", default=True)
 @click.option("--load-in-4bit/--no-load-in-4bit", default=True)
 @click.option("--device-map", "-m", default="auto")
 @click.option("--split", default="train")
+@click.option("--eval-split", default="train")
 @click.option("--num_workers", default=4, type=int)
 @click.option("--streaming/--no-streaming", default=False)
 @click.option("--size-valid-set", default=4000, type=int)
 @click.option("--shuffle-buffer", default=5000, type=int)
 @click.option("--seq-length", default=1024, type=int)
-@click.option("--lora-r", default=8, type=int)
-@click.option("--lora-alpha", default=16, type=int)
+@click.option("--lora-r", default=16, type=int)
+@click.option("--lora-alpha", default=32, type=int)
 @click.option("--target-modules", default="[]", type=str)
 @click.option("--num-train-epochs", default=3, type=int)
 @click.option("--early-stopping-patience", default=10, type=int)
@@ -220,6 +222,18 @@ def train(args):
         seq_length=args.seq_length,
         test_size=args.test_size,
     )
+    if args.eval_dataset is not None:
+        _, eval_dataset = load_datasets(
+            tokenizer=tokenizer,
+            dataset_name=args.dataset,
+            split=args.eval_split,
+            num_workers=args.num_workers,
+            streaming=args.streaming,
+            size_valid_set=args.size_valid_set,
+            shuffle_buffer=args.shuffle_buffer,
+            seq_length=args.seq_length,
+            test_size=args.test_size,
+        )
     callbacks = [MetadataSavingCallback(args)]
     if args.early_stopping_patience:
         callbacks.append(EarlyStoppingCallback(early_stopping_patience=args.early_stopping_patience))
