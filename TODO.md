@@ -1,6 +1,8 @@
 * update README with different scenarios (full training, lora, pseudo qlora, pre-training)
 * add replay/from-metadata functionality
-* adopt dataset loading and other insightful stuff from alignment-handbook
+* adopt dataset loading incl. shuffling and mixing and other insightful stuff from alignment-handbook
+* try datacollatorforcompletiononly
+* eval mistral beta sft as a base model
 * train directly from adapter with automated detection and merging of base model and previous adapters
 * print and compare tensors for base models, quantized models, (q)lora adapters, and merged models
 * fix training with gptq model (qlora)
