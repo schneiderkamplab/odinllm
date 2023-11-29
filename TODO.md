@@ -1,8 +1,6 @@
 * update README with different scenarios (full training, lora, pseudo qlora, pre-training)
-* implement eval on full dataset
 * add replay/from-metadata functionality
-* adopt insightful stuff from alignment-handbook
-* distributed training on multiple GPUs with speedup - torchrun.distributed/accelerate/deepspeed
+* adopt dataset loading and other insightful stuff from alignment-handbook
 * train directly from adapter with automated detection and merging of base model and previous adapters
 * print and compare tensors for base models, quantized models, (q)lora adapters, and merged models
 * fix training with gptq model (qlora)

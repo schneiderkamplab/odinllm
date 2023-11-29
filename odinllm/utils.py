@@ -1,8 +1,10 @@
+from accelerate import Accelerator
 from argparse import Namespace
 import logging
 import os
 import sys
 import time
+import torch
 from tqdm import tqdm
 
 # logging
@@ -74,24 +76,31 @@ FEATURES2PROMPT = {
     ("text",): "{text}",
 }
 
-def get_prepare_sample_text(tokenizer):
-    def prepare_sample_text(sample):
-        if "text" in sample:
-            sample = {"text": sample["text"]}
-        sample_clean = {k: v for k, v in sample.items() if v.strip()}
-        features = tuple(sorted(sample_clean.keys()))
+def format_text(sample, tokenizer=None):
+    if "messages" in sample:
+        messages = sample["messages"]
+        if messages[0]["role"] != "system":
+            messages.insert(0, {"role": "system", "content": ""})
+        sample["text"] = tokenizer.apply_chat_template(
+            messages,
+            tokenize=False,
+            add_generation_prompt=False,
+        )
+    if "text" in sample:
+        sample = {"text": sample["text"]}
+    sample_clean = {k: v for k, v in sample.items() if v.strip()}
+    features = tuple(sorted(sample_clean.keys()))
+    prompt = FEATURES2PROMPT.get(features, None)
+    if prompt is None:
+        features = tuple(sorted(sample.keys()))
         prompt = FEATURES2PROMPT.get(features, None)
         if prompt is None:
-            features = tuple(sorted(sample.keys()))
-            prompt = FEATURES2PROMPT.get(features, None)
-            if prompt is None:
-                raise RuntimeError(f"no prompt template for feature combination {features} for sample {sample}")
-            sample_clean = sample
-        return prompt.format(
-            eos_token=tokenizer.eos_token,
-            **sample_clean,
-        )
-    return prepare_sample_text
+            raise RuntimeError(f"no prompt template for feature combination {features} for sample {sample}")
+        sample_clean = sample
+    return prompt.format(
+        eos_token=tokenizer.eos_token,
+        **sample_clean,
+    )
 
 # example prompts
 EXAMPLES = {
@@ -120,10 +129,10 @@ EXAMPLE_PROMPTS = {
 }
 
 # stats
-def chars_token_ratio(dataset, tokenizer, prepare_sample_text, nb_examples=400):
+def chars_token_ratio(dataset, tokenizer, prepare_sample_text, prepare_sample_text_kwargs, nb_examples=400):
     total_characters, total_tokens = 0, 0
     for _, example in tqdm(zip(range(nb_examples), iter(dataset)), total=nb_examples):
-        text = prepare_sample_text(example)
+        text = prepare_sample_text(example, **prepare_sample_text_kwargs)
         total_characters += len(text)
         if tokenizer.is_fast:
             total_tokens += len(tokenizer(text).tokens())
@@ -165,3 +174,10 @@ METADATA_FILENAME="metadata.json"
 
 def metadata_filename(dir):
     return os.path.join(dir, METADATA_FILENAME)
+
+# distributed training
+def get_current_device():
+    return Accelerator().local_process_index if torch.cuda.is_available() else "cpu"
+
+def get_device_map():
+    return {"": get_current_device()} if torch.cuda.is_available() else None

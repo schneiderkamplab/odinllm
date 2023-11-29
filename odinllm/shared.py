@@ -34,6 +34,9 @@ def load_model(model_dir, device_map, qualifier, load_in_4bit):
         device_map=device_map,
         trust_remote_code=True,
         torch_dtype=torch.bfloat16,
+        use_flash_attention_2=True,
+        use_cache=False,
+        revision='main',
     )
     model.config.use_cache = False
     status(model.device)
@@ -51,6 +54,8 @@ def load_tokenizer(model_dir):
         trust_remote_code=True,
     )
     tokenizer.pad_token = tokenizer.eos_token
+    if tokenizer.model_max_length > 1_000_000:
+        tokenizer.model_max_length = 2048
     end()
     return tokenizer
 

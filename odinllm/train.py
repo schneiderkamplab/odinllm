@@ -1,3 +1,4 @@
+from accelerate import Accelerator
 import click
 from datasets import load_dataset
 import os
@@ -7,7 +8,16 @@ from trl import SFTTrainer
 from trl.trainer import ConstantLengthDataset
 
 from .shared import load_model, load_tokenizer, save_metadata
-from .utils import chars_token_ratio, end, get_prepare_sample_text, parse_args, start, status, trainable_parameters
+from .utils import (
+    chars_token_ratio,
+    end,
+    format_text,
+    get_device_map,
+    parse_args,
+    start,
+    status,
+    trainable_parameters,
+)
 
 class MetadataSavingCallback(TrainerCallback):
     def __init__(self, args):
@@ -83,7 +93,8 @@ def get_training_args(
         per_device_train_batch_size=per_device_train_batch_size,
         per_device_eval_batch_size=per_device_eval_batch_size,
         gradient_accumulation_steps=gradient_accumulation_steps,
-        gradient_checkpointing=False,
+        gradient_checkpointing=True,
+        gradient_checkpointing_kwargs={"use_reentrant": False},
         group_by_length=False,
         learning_rate=1e-4,
         lr_scheduler_type="cosine",
@@ -91,9 +102,11 @@ def get_training_args(
         weight_decay=0.05,
         optim="paged_adamw_32bit",
         bf16=True,
-        remove_unused_columns=False,
+        remove_unused_columns=True,
         run_name=f"{qualifier}_{output_dir}",
         report_to="wandb",
+        seed=42,
+        ddp_find_unused_parameters=False,
     )
     return training_arguments    
 
@@ -126,13 +139,12 @@ def load_datasets(tokenizer, dataset_name, split, num_workers, streaming, size_v
         status(f"#train: {len(train_data)}; #eval: {len(valid_data)}", end='')
     end()
     start("Preprocessing the dataset")
-    prepare_sample_text = get_prepare_sample_text(tokenizer)
-    chars_per_token = chars_token_ratio(train_data, tokenizer, prepare_sample_text=prepare_sample_text)
+    chars_per_token = chars_token_ratio(train_data, tokenizer, prepare_sample_text=format_text, prepare_sample_text_kwargs={"tokenizer": tokenizer})
     status(f"{chars_per_token:.2f} chars/token", end='')
     train_dataset = ConstantLengthDataset(
         tokenizer,
         train_data,
-        formatting_func=prepare_sample_text,
+        formatting_func=lambda x: format_text(x, tokenizer=tokenizer),
         infinite=True,
         seq_length=seq_length,
         chars_per_token=chars_per_token,
@@ -140,7 +152,7 @@ def load_datasets(tokenizer, dataset_name, split, num_workers, streaming, size_v
     valid_dataset = ConstantLengthDataset(
         tokenizer,
         valid_data,
-        formatting_func=prepare_sample_text,
+        formatting_func=lambda x: format_text(x, tokenizer=tokenizer),
         infinite=False,
         seq_length=seq_length,
         chars_per_token=chars_per_token,
@@ -187,19 +199,6 @@ def train(args):
     if not args.peft and args.load_in_4bit:
         status("--no-peft implies --no-load-in-4bit")
         args.load_in_4bit = False
-    model = load_model(
-        args.pretrained_model,
-        device_map=args.device_map,
-        qualifier="pretrained model",
-        load_in_4bit=args.load_in_4bit,
-    )
-    peft_config = get_peft_config(
-        model=model,
-        target_modules=args.target_modules,
-        lora_r=args.lora_r,
-        lora_alpha=args.lora_alpha,
-    ) if args.peft else None
-    tokenizer = load_tokenizer(args.pretrained_model)
     training_args = get_training_args(
         output_dir=args.output_dir,
         qualifier="train",
@@ -214,6 +213,21 @@ def train(args):
         save_total_limit=args.save_total_limit,
         load_best_model_at_end=args.load_best_model_at_end,
     )
+    if args.device_map == "auto" and training_args.local_rank != -1:
+        args.device_map = get_device_map()
+    model = load_model(
+        args.pretrained_model,
+        device_map=args.device_map,
+        qualifier="pretrained model",
+        load_in_4bit=args.load_in_4bit,
+    )
+    peft_config = get_peft_config(
+        model=model,
+        target_modules=args.target_modules,
+        lora_r=args.lora_r,
+        lora_alpha=args.lora_alpha,
+    ) if args.peft else None
+    tokenizer = load_tokenizer(args.pretrained_model)
     train_dataset, eval_dataset = load_datasets(
         tokenizer=tokenizer,
         dataset_name=args.dataset,
@@ -238,7 +252,7 @@ def train(args):
             test_size=args.test_size,
         )
     callbacks = [MetadataSavingCallback(args)]
-    if args.early_stopping_patience:
+    if args.early_stopping_patience > 0:
         callbacks.append(EarlyStoppingCallback(early_stopping_patience=args.early_stopping_patience))
     trainer = SFTTrainer(
         model=model,
@@ -246,12 +260,16 @@ def train(args):
         eval_dataset=eval_dataset,
         peft_config=peft_config,
         packing=args.packing,
+        dataset_text_field="text",
         max_seq_length=args.seq_length,
         tokenizer=tokenizer,
         args=training_args,
         callbacks=callbacks,
     )
-    save_metadata(model.metadata, args, args.output_dir)
+    accelerator = Accelerator()
+    if accelerator.is_main_process:
+        save_metadata(model.metadata, args, args.output_dir)
+    accelerator.wait_for_everyone()
     do_train(
         trainer,
         output_dir=args.output_dir,
