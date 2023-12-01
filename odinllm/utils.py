@@ -19,17 +19,19 @@ def update_key(kwargs, key, val):
 
 def parse_args(func):
     def parse(**kwargs):
-        for key in list(kwargs.keys()):
+        for key, val in list(kwargs.items()):
             if key == "device_map":
-                update_key(kwargs, key, parse_device_map(kwargs[key]))
+                update_key(kwargs, key, parse_device_map(val))
             elif key == "target_modules":
-                update_key(kwargs, key, eval(kwargs[key]))
+                update_key(kwargs, key, eval(val))
             elif key.endswith("_class"):
                 import transformers
-                update_key(kwargs, key, eval(f"transformers.{kwargs[key]}"))
+                update_key(kwargs, key, eval(f"transformers.{val}"))
             elif key.endswith("_dtype"):
                 import torch
-                update_key(kwargs, key, eval(f"torch.{kwargs[key]}"))
+                update_key(kwargs, key, eval(f"torch.{val}"))
+            elif val[0] in ("[", "{"):
+                update_key(kwargs, key, eval(val))
         kwargs["command"] = func.__name__
         kwargs["argv"] = sys.argv
         args = Namespace(**kwargs)

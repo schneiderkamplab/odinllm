@@ -194,6 +194,7 @@ def _train():
 @click.option("--save-total-limit", default=1, type=int)
 @click.option("--load-best-model-at-end", default=True)
 @click.option("--test-size", default=100, type=int)
+@click.option("--neftune-noise-alpha", default=None, type=float)
 @parse_args
 def train(args):
     if not args.peft and args.load_in_4bit:
@@ -265,6 +266,7 @@ def train(args):
         tokenizer=tokenizer,
         args=training_args,
         callbacks=callbacks,
+        neftune_noise_alpha=args.neftune_noise_alpha,
     )
     accelerator = Accelerator()
     if accelerator.is_main_process:
