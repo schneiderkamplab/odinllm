@@ -24,6 +24,8 @@ def parse_args(func):
                 update_key(kwargs, key, parse_device_map(val))
             elif key == "target_modules":
                 update_key(kwargs, key, eval(val))
+            elif key.endswith("_template"):
+                update_key(kwargs, key, eval(f"'{val}'"))
             elif key.endswith("_class"):
                 import transformers
                 update_key(kwargs, key, eval(f"transformers.{val}"))

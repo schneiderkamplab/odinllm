@@ -3,8 +3,8 @@ import click
 from datasets import load_dataset
 import os
 from peft import LoraConfig
-from transformers import EarlyStoppingCallback,TrainerCallback, TrainingArguments
-from trl.trainer import ConstantLengthDataset
+from transformers import EarlyStoppingCallback, TrainerCallback, TrainingArguments
+from trl.trainer import ConstantLengthDataset, DataCollatorForCompletionOnlyLM
 
 from .shared import load_model, load_tokenizer, save_metadata
 from .trainer import OdinTrainer
@@ -204,6 +204,8 @@ def _train():
 @click.option("--load-best-model-at-end", default=True)
 @click.option("--test-size", default=100, type=int)
 @click.option("--neftune-noise-alpha", default=None, type=float)
+@click.option("--instruction-template", default=None, type=str)
+@click.option("--response-template", default=None, type=str)
 @parse_args
 def train(args):
     if not args.peft and args.load_in_4bit:
@@ -272,6 +274,11 @@ def train(args):
     if args.early_stopping_patience > 0:
         callbacks.append(EarlyStoppingCallback(early_stopping_patience=args.early_stopping_patience))
     status(f"callbacks: {callbacks}", end='')
+    collator = DataCollatorForCompletionOnlyLM(
+        instruction_template=tokenizer(args.instruction_template, add_special_tokens=False)["input_ids"][1:],
+        response_template=tokenizer(args.response_template, add_special_tokens=False)["input_ids"][1:],
+        tokenizer=tokenizer,
+    ) if args.response_template is not None else None
     trainer = OdinTrainer(
         model=model,
         train_dataset=train_dataset,
@@ -284,6 +291,7 @@ def train(args):
         args=training_args,
         callbacks=callbacks,
         neftune_noise_alpha=args.neftune_noise_alpha,
+        data_collator=collator,
     )
     end()
     start("Saving metadata on main process")
