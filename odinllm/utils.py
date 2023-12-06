@@ -30,7 +30,7 @@ def parse_args(func):
             elif key.endswith("_dtype"):
                 import torch
                 update_key(kwargs, key, eval(f"torch.{val}"))
-            elif val[0] in ("[", "{"):
+            elif isinstance(val, str) and val[0] in ("[", "{"):
                 update_key(kwargs, key, eval(val))
         kwargs["command"] = func.__name__
         kwargs["argv"] = sys.argv

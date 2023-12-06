@@ -4,7 +4,7 @@
 * play with neftune
 * evaluate mistral 7b sft beta
 * add replay/from-metadata functionality
-* adopt dataset loading incl. shuffling and mixing and other insightful stuff from alignment-handbook
+* adopt dataset loading incl. shuffling and mixing and other insightful stuff from alignment-handbook such as chat templates
 * try datacollatorforcompletiononly
 * eval mistral beta sft as a base model
 * train directly from adapter with automated detection and merging of base model and previous adapters

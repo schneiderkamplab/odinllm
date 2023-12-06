@@ -4,10 +4,10 @@ from datasets import load_dataset
 import os
 from peft import LoraConfig
 from transformers import EarlyStoppingCallback,TrainerCallback, TrainingArguments
-from trl import SFTTrainer
 from trl.trainer import ConstantLengthDataset
 
 from .shared import load_model, load_tokenizer, save_metadata
+from .trainer import OdinTrainer
 from .utils import (
     chars_token_ratio,
     end,
@@ -44,7 +44,6 @@ def get_peft_config(model, target_modules, lora_r, lora_alpha):
             if type(module).__name__ in ("Linear", "Linear4bit"):
                 target_modules.add(name.split(".")[-1])
         target_modules = list(target_modules)
-    status(target_modules)
     config = LoraConfig(
         r=lora_r,
         lora_alpha=lora_alpha,
@@ -53,6 +52,7 @@ def get_peft_config(model, target_modules, lora_r, lora_alpha):
         bias="none",
         task_type="CAUSAL_LM",
     )
+    status(target_modules)
     return config
 
 def do_train(trainer, output_dir):
@@ -78,6 +78,7 @@ def get_training_args(
     num_train_epochs,
     save_total_limit,
     load_best_model_at_end,
+    eval_dataset,
 ):
     training_arguments = TrainingArguments(
         output_dir=output_dir,
@@ -86,6 +87,7 @@ def get_training_args(
         save_steps=save_steps,
         save_total_limit=save_total_limit,
         load_best_model_at_end=load_best_model_at_end,
+        metric_for_best_model=f"eval_{list(eval_dataset.keys())[0]}_loss" if isinstance(eval_dataset, dict) else "eval_loss",
         eval_steps=eval_steps,
         do_eval=True,
         evaluation_strategy="steps",
@@ -110,7 +112,7 @@ def get_training_args(
     )
     return training_arguments    
 
-def load_datasets(tokenizer, dataset_name, split, num_workers, streaming, size_valid_set, shuffle_buffer, seq_length, test_size):
+def load_datasets(tokenizer, dataset_name, split, num_workers, streaming, shuffle_buffer, seq_length, test_size, eval):
     start("Loading dataset from", dataset_name)
     if os.path.isfile(dataset_name):
         dataset = load_dataset(
@@ -128,37 +130,44 @@ def load_datasets(tokenizer, dataset_name, split, num_workers, streaming, size_v
             streaming=streaming,
         )
     if streaming:
-        status("Loading the dataset in streaming mode", end='')
-        valid_data = dataset.take(size_valid_set)
-        train_data = dataset.skip(size_valid_set)
-        train_data = train_data.shuffle(buffer_size=shuffle_buffer, seed=None)
-    else:
-        dataset = dataset.train_test_split(test_size=test_size, seed=42)
+        status("streaming mode", end='')
+        eval_data = dataset.take(test_size) if test_size > 0 else None
+        train_data = dataset.skip(test_size)
+        train_data = train_data.shuffle(buffer_size=shuffle_buffer, seed=42)
+    elif test_size > 0:
+        dataset = dataset.train_test_split(test_size=test_size, shuffle=True, seed=42)
         train_data = dataset["train"]
-        valid_data = dataset["test"]
-        status(f"#train: {len(train_data)}; #eval: {len(valid_data)}", end='')
+        eval_data = dataset["test"]
+        status(f"#train: {len(train_data)}", end='')
+        status(f"#eval: {len(eval_data)}", end='')
+    else:
+        train_data = dataset.shuffle(seed=42)
+        eval_data = None
+        status(f"#train: {len(train_data)}", end='')
     end()
     start("Preprocessing the dataset")
     chars_per_token = chars_token_ratio(train_data, tokenizer, prepare_sample_text=format_text, prepare_sample_text_kwargs={"tokenizer": tokenizer})
-    status(f"{chars_per_token:.2f} chars/token", end='')
-    train_dataset = ConstantLengthDataset(
+    status(f"chars/token: {chars_per_token:.2f}", end='')
+    train_data = ConstantLengthDataset(
         tokenizer,
         train_data,
         formatting_func=lambda x: format_text(x, tokenizer=tokenizer),
-        infinite=True,
+        infinite=not eval,
         seq_length=seq_length,
         chars_per_token=chars_per_token,
     )
-    valid_dataset = ConstantLengthDataset(
+    eval_data = ConstantLengthDataset(
         tokenizer,
-        valid_data,
+        eval_data,
         formatting_func=lambda x: format_text(x, tokenizer=tokenizer),
         infinite=False,
         seq_length=seq_length,
         chars_per_token=chars_per_token,
-    )
+    ) if eval_data is not None else None
     end()
-    return train_dataset, valid_dataset
+    if eval:
+        return train_data
+    return train_data, None if eval_data is None else {dataset_name: eval_data}
 
 @click.group()
 def _train():
@@ -200,6 +209,35 @@ def train(args):
     if not args.peft and args.load_in_4bit:
         status("--no-peft implies --no-load-in-4bit")
         args.load_in_4bit = False
+    tokenizer = load_tokenizer(args.pretrained_model)
+    train_dataset, eval_dataset = load_datasets(
+        tokenizer=tokenizer,
+        dataset_name=args.dataset,
+        split=args.split,
+        num_workers=args.num_workers,
+        streaming=args.streaming,
+        shuffle_buffer=args.shuffle_buffer,
+        seq_length=args.seq_length,
+        test_size=args.test_size,
+        eval=False,
+    )
+    if args.eval_dataset is not None:
+        extra_eval_dataset = load_datasets(
+            tokenizer=tokenizer,
+            dataset_name=args.eval_dataset,
+            split=args.eval_split,
+            num_workers=args.num_workers,
+            streaming=args.streaming,
+            shuffle_buffer=args.shuffle_buffer,
+            seq_length=args.seq_length,
+            test_size=0,
+            eval=True,
+        )
+        if eval_dataset is None:
+            eval_dataset = {}
+        eval_dataset[args.eval_dataset] = extra_eval_dataset
+    if eval_dataset is not None and len(eval_dataset) == 1:
+        eval_dataset = list(eval_dataset.values())[0]
     training_args = get_training_args(
         output_dir=args.output_dir,
         qualifier="train",
@@ -213,6 +251,7 @@ def train(args):
         num_train_epochs=args.num_train_epochs,
         save_total_limit=args.save_total_limit,
         load_best_model_at_end=args.load_best_model_at_end,
+        eval_dataset=eval_dataset,
     )
     if args.device_map == "auto" and training_args.local_rank != -1:
         args.device_map = get_device_map()
@@ -228,34 +267,12 @@ def train(args):
         lora_r=args.lora_r,
         lora_alpha=args.lora_alpha,
     ) if args.peft else None
-    tokenizer = load_tokenizer(args.pretrained_model)
-    train_dataset, eval_dataset = load_datasets(
-        tokenizer=tokenizer,
-        dataset_name=args.dataset,
-        split=args.split,
-        num_workers=args.num_workers,
-        streaming=args.streaming,
-        size_valid_set=args.size_valid_set,
-        shuffle_buffer=args.shuffle_buffer,
-        seq_length=args.seq_length,
-        test_size=args.test_size,
-    )
-    if args.eval_dataset is not None:
-        _, eval_dataset = load_datasets(
-            tokenizer=tokenizer,
-            dataset_name=args.dataset,
-            split=args.eval_split,
-            num_workers=args.num_workers,
-            streaming=args.streaming,
-            size_valid_set=args.size_valid_set,
-            shuffle_buffer=args.shuffle_buffer,
-            seq_length=args.seq_length,
-            test_size=args.test_size,
-        )
+    start("Setting up training")
     callbacks = [MetadataSavingCallback(args)]
     if args.early_stopping_patience > 0:
         callbacks.append(EarlyStoppingCallback(early_stopping_patience=args.early_stopping_patience))
-    trainer = SFTTrainer(
+    status(f"callbacks: {callbacks}", end='')
+    trainer = OdinTrainer(
         model=model,
         train_dataset=train_dataset,
         eval_dataset=eval_dataset,
@@ -268,10 +285,13 @@ def train(args):
         callbacks=callbacks,
         neftune_noise_alpha=args.neftune_noise_alpha,
     )
+    end()
+    start("Saving metadata on main process")
     accelerator = Accelerator()
     if accelerator.is_main_process:
         save_metadata(model.metadata, args, args.output_dir)
     accelerator.wait_for_everyone()
+    end()
     do_train(
         trainer,
         output_dir=args.output_dir,
