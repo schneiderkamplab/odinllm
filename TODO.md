@@ -1,6 +1,8 @@
 * update README with different scenarios (full training, lora, pseudo qlora, pre-training)
 * pass in yaml with trainer args, training args, model.from_pretrained args, tokenizere.from_pretrained args, lora args
 * play with neftune
+* update OdinTrainer with next trl release
+* update OdinTrainer with next transformers release that incorporates the changes
 * evaluate mistral 7b sft beta
 * add replay/from-metadata functionality
 * adopt dataset loading incl. shuffling and mixing and other insightful stuff from alignment-handbook such as chat templates

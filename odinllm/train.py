@@ -24,17 +24,18 @@ class MetadataSavingCallback(TrainerCallback):
         self.args = args
     def on_save(self, args, state, _, **kwargs):
         if args.should_save:
-            checkpoint_path = os.path.join(args.output_dir, f"checkpoint-{state.global_step}")
+            checkpoint_name = f"checkpoint-{state.global_step}"
+            checkpoint_path = os.path.join(args.output_dir, checkpoint_name)
             save_metadata(kwargs["model"].metadata, self.args, checkpoint_path)
             latest_link = os.path.join(args.output_dir, "latest")
             if os.path.islink(latest_link):
                 os.remove(latest_link)
-            os.symlink(checkpoint_path, latest_link)
+            os.symlink(checkpoint_name, latest_link)
             if args.load_best_model_at_end:
                 best_link = os.path.join(args.output_dir, "best")
                 if os.path.islink(best_link):
                     os.remove(best_link)
-                os.symlink(state.best_model_checkpoint, best_link)
+                os.symlink(state.best_model_checkpoint.split("/")[-1], best_link)
 
 def get_peft_config(model, target_modules, lora_r, lora_alpha):
     start("Target modules")
@@ -184,7 +185,7 @@ def _train():
 @click.option("--per-device-train-batch-size", "-b", default=1, type=int)
 @click.option("--per-device-eval-batch-size", default=1, type=int)
 @click.option("--dataset", "-d", default="samsum", type=str)
-@click.option("--eval-dataset", "-e", default=None, type=str)
+@click.option("--eval-dataset", "-e", default=[], type=str, multiple=True)
 @click.option("--packing/--no-packing", default=True)
 @click.option("--load-in-4bit/--no-load-in-4bit", default=True)
 @click.option("--device-map", "-m", default="auto")
@@ -223,10 +224,10 @@ def train(args):
         test_size=args.test_size,
         eval=False,
     )
-    if args.eval_dataset is not None:
+    for eval_dataset_name in args.eval_dataset:
         extra_eval_dataset = load_datasets(
             tokenizer=tokenizer,
-            dataset_name=args.eval_dataset,
+            dataset_name=eval_dataset_name,
             split=args.eval_split,
             num_workers=args.num_workers,
             streaming=args.streaming,
@@ -237,7 +238,7 @@ def train(args):
         )
         if eval_dataset is None:
             eval_dataset = {}
-        eval_dataset[args.eval_dataset] = extra_eval_dataset
+        eval_dataset[eval_dataset_name] = extra_eval_dataset
     if eval_dataset is not None and len(eval_dataset) == 1:
         eval_dataset = list(eval_dataset.values())[0]
     training_args = get_training_args(
