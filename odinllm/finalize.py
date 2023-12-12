@@ -3,18 +3,18 @@ import os
 import torch
 
 from .shared import load_lora, load_model, load_tokenizer, save_metadata, save_model, save_tokenizer
-from .utils import end, parse_args, start, status
+from .utils import args_config, start, status
 
 @click.group()
 def _finalize():
     pass
 @_finalize.command()
-@click.argument("training-dir", type=str)
+@click.argument("config", type=click.Path(exists=True), nargs=-1)
+@click.argument("training-dir", type=click.Path(exists=True))
 @click.option("--checkpoint", default=None, type=int)
 @click.option("--base-model", default=None, type=click.Path(exists=True))
-@click.option("--device-map", "-m", default="auto")
-@parse_args
-def finalize(args):
+@args_config
+def finalize(args, config):
     start("Determining checkpoint location")
     if args.checkpoint is None:
         best_link = os.path.join(args.training_dir, "best")
@@ -35,21 +35,17 @@ def finalize(args):
     if args.base_model is None:
         model = load_model(
             model_dir=checkpoint_dir,
-            device_map=args.device_map,
-            qualifier="checkpoint model",
-            load_in_4bit=False,
+            config=config,
         )
     else:
         model = load_model(
             model_dir=args.base_model,
-            device_map=args.device_map,
-            qualifier="base model",
-            load_in_4bit=False,
+            config=config,
         )
         model = load_lora(model, checkpoint_dir)
-    save_model(model, args.training_dir, "checkpoint model")
-    tokenizer = load_tokenizer(checkpoint_dir)
+    save_model(model, args.training_dir)
+    tokenizer = load_tokenizer(checkpoint_dir, config)
     save_tokenizer(tokenizer, args.training_dir)
     training_args = torch.load(os.path.join(checkpoint_dir, "training_args.bin"))
     torch.save(training_args, os.path.join(args.training_dir, "training_args.bin"))
-    save_metadata(model.metada, args, args.training_dir)
+    save_metadata(model.metadata, config, args.training_dir)

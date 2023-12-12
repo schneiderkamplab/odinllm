@@ -1,0 +1,24 @@
+model:
+  torch_dtype: ::torch.float32
+train:
+  peft: false
+training_args:
+  per_device_eval_batch_size: 1
+  per_device_train_batch_size: 1
+  bf16: false
+  report_to: null
+trainer_args:
+  packing: false
+datasets:
+  train_datasets:
+    - split: "train"
+      shuffle: true
+      name: "data/ft-1000.jsonl"
+      infinite: true
+      from_index: 100
+  eval_datasets:
+    - split: "train"
+      shuffle: true
+      name: "data/ft-1000.jsonl"
+      infinite: false
+      to_index: 100

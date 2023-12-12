@@ -1,7 +1,7 @@
 import click
 
 from .shared import load_tokenizer, load_model, load_lora
-from .utils import EXAMPLE_PROMPTS, end, parse_args, start
+from .utils import EXAMPLE_PROMPTS, args_config, end, start
 
 def run_prompt(model, tokenizer, run_prompt=None, max_new_tokens=128):
     results = []
@@ -22,19 +22,16 @@ def run_prompt(model, tokenizer, run_prompt=None, max_new_tokens=128):
 def _infer():
     pass
 @_infer.command()
+@click.argument("config", type=click.Path(exists=True), nargs=-1)
 @click.argument("pretrained-model", type=click.Path(exists=True))
 @click.option("--lora-adapter", "-l", default=None, help="Optional LoRA adapter to load with PEFT")
 @click.option("--run-prompt", "-p", default=None, help="Prompt to run instead of example prompts")
-@click.option("--load-in-4bit/--no-load-in-4bit", default=True)
-@click.option("--device-map", "-m", default="auto")
-@parse_args
-def infer(args):
-    tokenizer = load_tokenizer(args.pretrained_model)
+@args_config
+def infer(args, config):
+    tokenizer = load_tokenizer(args.pretrained_model, config)
     model = load_model(
         args.pretrained_model,
-        device_map=args.device_map,
-        qualifier="pretrained model",
-        load_in_4bit=args.load_in_4bit,
+        config=config,
     )
     if args.lora_adapter is not None:
         model = load_lora(model, args.lora_adapter)

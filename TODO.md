@@ -1,5 +1,15 @@
+* gitlab ci
+* abstract load_datasets into shared with list of eval and train datasets (with proportion/size given)
+* adapt finalize, infer, snapshot, train
+* move corpora into yaml file for init
+* how to override from command line (training_args.bf16=true)
+* check that all config.CMD params can be overriden on the command line (e.g. init)
+* no infinite configuration but depending on eval/train?
+* move all commands to subdirectory
+* multiple training datasets
 * update README with different scenarios (full training, lora, pseudo qlora, pre-training)
 * pass in yaml with trainer args, training args, model.from_pretrained args, tokenizere.from_pretrained args, lora args
+* add launch command that takes configs and runs the preconfigured commands (list of commands as an argument, command arguments from yaml)
 * play with neftune
 * update OdinTrainer with next trl release
 * update OdinTrainer with next transformers release that incorporates the changes

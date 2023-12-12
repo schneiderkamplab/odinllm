@@ -1,0 +1,12 @@
+datasets:
+  eval_datasets:
+    - split: "train"
+      shuffle: true
+      name: "data/alpaca_gpt4_data.da.json.gz"
+      to: 1000
+      infinite: false
+    - split: "train"
+      shuffle: true
+      name: "data/Vicuna.da.json.gz"
+      from: -1000
+      infinite: false
