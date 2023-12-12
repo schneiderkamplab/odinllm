@@ -1,32 +1,30 @@
 from accelerate import Accelerator
 import click
-from datasets import load_dataset
 import os
 from peft import LoraConfig
+import torch
 from transformers import EarlyStoppingCallback, TrainerCallback, TrainingArguments
-from trl.trainer import ConstantLengthDataset, DataCollatorForCompletionOnlyLM
+from trl.trainer import DataCollatorForCompletionOnlyLM
 
-from .shared import load_model, load_tokenizer, save_metadata
+from .shared import load_datasets, load_model, load_tokenizer, save_metadata
 from .trainer import OdinTrainer
 from .utils import (
-    chars_token_ratio,
+    args_config,
     end,
-    format_text,
     get_device_map,
-    parse_args,
     start,
     status,
     trainable_parameters,
 )
 
 class MetadataSavingCallback(TrainerCallback):
-    def __init__(self, args):
-        self.args = args
+    def __init__(self, config):
+        self.config = config
     def on_save(self, args, state, _, **kwargs):
         if args.should_save:
             checkpoint_name = f"checkpoint-{state.global_step}"
             checkpoint_path = os.path.join(args.output_dir, checkpoint_name)
-            save_metadata(kwargs["model"].metadata, self.args, checkpoint_path)
+            save_metadata(kwargs["model"].metadata, self.config, checkpoint_path)
             latest_link = os.path.join(args.output_dir, "latest")
             if os.path.islink(latest_link):
                 os.remove(latest_link)
@@ -37,271 +35,120 @@ class MetadataSavingCallback(TrainerCallback):
                     os.remove(best_link)
                 os.symlink(state.best_model_checkpoint.split("/")[-1], best_link)
 
-def get_peft_config(model, target_modules, lora_r, lora_alpha):
+def get_peft_config(model, config):
     start("Target modules")
-    if not target_modules:
+    if not config.peft_config["target_modules"]:
         target_modules = set()
         for name, module in model.named_modules():
             if type(module).__name__ in ("Linear", "Linear4bit"):
                 target_modules.add(name.split(".")[-1])
-        target_modules = list(target_modules)
-    config = LoraConfig(
-        r=lora_r,
-        lora_alpha=lora_alpha,
-        lora_dropout=0.05,
-        target_modules=target_modules,
-        bias="none",
-        task_type="CAUSAL_LM",
-    )
+        config.peft_config["target_modules"] = list(target_modules)
+    config = LoraConfig(**config.peft_config)
     status(target_modules)
     return config
 
+def get_collator(tokenizer, instruction_template, response_template):
+    if response_template is None:
+        return None
+    response_template = tokenizer(response_template, add_special_tokens=False)["input_ids"][1:]
+    instruction_template = None if instruction_template is None else tokenizer(instruction_template, add_special_tokens=False)["input_ids"][1:]
+    collator = DataCollatorForCompletionOnlyLM(
+        instruction_template=instruction_template,
+        response_template=response_template,
+        tokenizer=tokenizer,
+    )
+    return collator
+
 def do_train(trainer, output_dir):
-    start("Supervised fine tuning")
+    torch.set_warn_always(False)
+    start("Training")
     trainable_params, all_params = trainable_parameters(trainer.model)
     status(f"#trainable-params: {trainable_params}; #all-params: {all_params}; %trainable: {100 * trainable_params / all_params}", end='')
-    print(trainer.evaluate())
+    if trainer.eval_dataset is not None:
+        print(trainer.evaluate())
     trainer.train()
-    print(trainer.evaluate())
+    if trainer.eval_dataset is not None:
+        print(trainer.evaluate())
     trainer.save_model(output_dir)
     end()
 
 def get_training_args(
     output_dir,
-    qualifier,
-    max_steps,
-    logging_steps,
-    eval_steps,
-    save_steps,
-    per_device_train_batch_size,
-    per_device_eval_batch_size,
-    gradient_accumulation_steps,
-    num_train_epochs,
-    save_total_limit,
-    load_best_model_at_end,
     eval_dataset,
+    config,
 ):
+    if config.training_args["metric_for_best_model"] is None and isinstance(eval_dataset, dict):
+        config.training_args["metric_for_best_model"] = f"eval_{next(iter(eval_dataset))}_loss"
+    if eval_dataset is None:
+        config.training_args["evaluation_strategy"] = "no"
+        config.training_args["load_best_model_at_end"] = False
+        config.training_args["do_eval"] = False
+    if config.training_args["run_name"] is None:
+        config.training_args["run_name"] = output_dir
     training_arguments = TrainingArguments(
         output_dir=output_dir,
-        max_steps=max_steps,
-        logging_steps=logging_steps,
-        save_steps=save_steps,
-        save_total_limit=save_total_limit,
-        load_best_model_at_end=load_best_model_at_end,
-        metric_for_best_model=f"eval_{list(eval_dataset.keys())[0]}_loss" if isinstance(eval_dataset, dict) else "eval_loss",
-        eval_steps=eval_steps,
-        do_eval=True,
-        evaluation_strategy="steps",
-        num_train_epochs=num_train_epochs,
-        per_device_train_batch_size=per_device_train_batch_size,
-        per_device_eval_batch_size=per_device_eval_batch_size,
-        gradient_accumulation_steps=gradient_accumulation_steps,
-        gradient_checkpointing=True,
-        gradient_checkpointing_kwargs={"use_reentrant": False},
-        group_by_length=False,
-        learning_rate=1e-4,
-        lr_scheduler_type="cosine",
-        warmup_steps=100,
-        weight_decay=0.05,
-        optim="paged_adamw_32bit",
-        bf16=True,
-        remove_unused_columns=True,
-        run_name=f"{qualifier}_{output_dir}",
-        report_to="wandb",
-        seed=42,
-        ddp_find_unused_parameters=False,
+        **config.training_args,
     )
     return training_arguments    
-
-def load_datasets(tokenizer, dataset_name, split, num_workers, streaming, shuffle_buffer, seq_length, test_size, eval):
-    start("Loading dataset from", dataset_name)
-    if os.path.isfile(dataset_name):
-        dataset = load_dataset(
-            "json",
-            data_files=dataset_name,
-            split=split,
-            num_proc=num_workers if not streaming else None,
-            streaming=streaming,
-        )
-    else:
-        dataset = load_dataset(
-            dataset_name,
-            split=split,
-            num_proc=num_workers if not streaming else None,
-            streaming=streaming,
-        )
-    if streaming:
-        status("streaming mode", end='')
-        eval_data = dataset.take(test_size) if test_size > 0 else None
-        train_data = dataset.skip(test_size)
-        train_data = train_data.shuffle(buffer_size=shuffle_buffer, seed=42)
-    elif test_size > 0:
-        dataset = dataset.train_test_split(test_size=test_size, shuffle=True, seed=42)
-        train_data = dataset["train"]
-        eval_data = dataset["test"]
-        status(f"#train: {len(train_data)}", end='')
-        status(f"#eval: {len(eval_data)}", end='')
-    else:
-        train_data = dataset.shuffle(seed=42)
-        eval_data = None
-        status(f"#train: {len(train_data)}", end='')
-    end()
-    start("Preprocessing the dataset")
-    chars_per_token = chars_token_ratio(train_data, tokenizer, prepare_sample_text=format_text, prepare_sample_text_kwargs={"tokenizer": tokenizer})
-    status(f"chars/token: {chars_per_token:.2f}", end='')
-    train_data = ConstantLengthDataset(
-        tokenizer,
-        train_data,
-        formatting_func=lambda x: format_text(x, tokenizer=tokenizer),
-        infinite=not eval,
-        seq_length=seq_length,
-        chars_per_token=chars_per_token,
-    )
-    eval_data = ConstantLengthDataset(
-        tokenizer,
-        eval_data,
-        formatting_func=lambda x: format_text(x, tokenizer=tokenizer),
-        infinite=False,
-        seq_length=seq_length,
-        chars_per_token=chars_per_token,
-    ) if eval_data is not None else None
-    end()
-    if eval:
-        return train_data
-    return train_data, None if eval_data is None else {dataset_name: eval_data}
 
 @click.group()
 def _train():
     pass
 @_train.command()
-@click.argument("pretrained-model", type=click.Path(exists=True))
-@click.argument("output-dir", type=click.Path(exists=False))
-@click.option("--peft/--no-peft", default=True)
-@click.option("--max-steps", "-s", default=-1, type=int)
-@click.option("--logging-steps", default=100, type=int)
-@click.option("--eval-steps", default=1000, type=int)
-@click.option("--save-steps", default=1000, type=int)
-@click.option("--gradient-accumulation-steps", "-g", default=1, type=int)
-@click.option("--per-device-train-batch-size", "-b", default=1, type=int)
-@click.option("--per-device-eval-batch-size", default=1, type=int)
-@click.option("--dataset", "-d", default="samsum", type=str)
-@click.option("--eval-dataset", "-e", default=[], type=str, multiple=True)
-@click.option("--packing/--no-packing", default=True)
-@click.option("--load-in-4bit/--no-load-in-4bit", default=True)
-@click.option("--device-map", "-m", default="auto")
-@click.option("--split", default="train")
-@click.option("--eval-split", default="train")
-@click.option("--num_workers", default=4, type=int)
-@click.option("--streaming/--no-streaming", default=False)
-@click.option("--size-valid-set", default=4000, type=int)
-@click.option("--shuffle-buffer", default=5000, type=int)
-@click.option("--seq-length", default=1024, type=int)
-@click.option("--lora-r", default=16, type=int)
-@click.option("--lora-alpha", default=32, type=int)
-@click.option("--target-modules", default="[]", type=str)
-@click.option("--num-train-epochs", default=3, type=int)
-@click.option("--early-stopping-patience", default=10, type=int)
-@click.option("--save-total-limit", default=1, type=int)
-@click.option("--load-best-model-at-end", default=True)
-@click.option("--test-size", default=100, type=int)
-@click.option("--neftune-noise-alpha", default=None, type=float)
+@click.argument("config", type=click.Path(exists=True), nargs=-1)
+@click.argument("base-model", type=click.Path(exists=True))
+@click.argument("trained-model", type=click.Path(exists=False))
+@click.option("--peft", default=None, type=bool)
+@click.option("--early-stopping-patience", default=None, type=int)
 @click.option("--instruction-template", default=None, type=str)
 @click.option("--response-template", default=None, type=str)
-@parse_args
-def train(args):
-    if not args.peft and args.load_in_4bit:
-        status("--no-peft implies --no-load-in-4bit")
-        args.load_in_4bit = False
-    tokenizer = load_tokenizer(args.pretrained_model)
-    train_dataset, eval_dataset = load_datasets(
-        tokenizer=tokenizer,
-        dataset_name=args.dataset,
-        split=args.split,
-        num_workers=args.num_workers,
-        streaming=args.streaming,
-        shuffle_buffer=args.shuffle_buffer,
-        seq_length=args.seq_length,
-        test_size=args.test_size,
-        eval=False,
-    )
-    for eval_dataset_name in args.eval_dataset:
-        extra_eval_dataset = load_datasets(
-            tokenizer=tokenizer,
-            dataset_name=eval_dataset_name,
-            split=args.eval_split,
-            num_workers=args.num_workers,
-            streaming=args.streaming,
-            shuffle_buffer=args.shuffle_buffer,
-            seq_length=args.seq_length,
-            test_size=0,
-            eval=True,
-        )
-        if eval_dataset is None:
-            eval_dataset = {}
-        eval_dataset[eval_dataset_name] = extra_eval_dataset
-    if eval_dataset is not None and len(eval_dataset) == 1:
-        eval_dataset = list(eval_dataset.values())[0]
-    training_args = get_training_args(
-        output_dir=args.output_dir,
-        qualifier="train",
-        max_steps=args.max_steps,
-        logging_steps=args.logging_steps,
-        eval_steps=args.eval_steps,
-        save_steps=args.save_steps,
-        per_device_train_batch_size=args.per_device_train_batch_size,
-        per_device_eval_batch_size=args.per_device_eval_batch_size,
-        gradient_accumulation_steps=args.gradient_accumulation_steps,
-        num_train_epochs=args.num_train_epochs,
-        save_total_limit=args.save_total_limit,
-        load_best_model_at_end=args.load_best_model_at_end,
-        eval_dataset=eval_dataset,
-    )
-    if args.device_map == "auto" and training_args.local_rank != -1:
-        args.device_map = get_device_map()
+@args_config
+def train(args, config):
+    if not args.peft and config.model["load_in_4bit"]:
+        status("deactivating load_in_4bit for full training")
+        config.model["load_in_4bit"] = False
+    tokenizer = load_tokenizer(args.base_model, config)
+    train_dataset, eval_dataset = load_datasets(tokenizer=tokenizer, config=config)
+    training_args = get_training_args(output_dir=args.trained_model, eval_dataset=eval_dataset, config=config)
+    if config.model["device_map"] == "auto" and training_args.local_rank != -1:
+        config.model["device_map"] = get_device_map()
     model = load_model(
-        args.pretrained_model,
-        device_map=args.device_map,
-        qualifier="pretrained model",
-        load_in_4bit=args.load_in_4bit,
+        args.base_model,
+        config=config,
     )
     peft_config = get_peft_config(
         model=model,
-        target_modules=args.target_modules,
-        lora_r=args.lora_r,
-        lora_alpha=args.lora_alpha,
+        config=config,
     ) if args.peft else None
     start("Setting up training")
-    callbacks = [MetadataSavingCallback(args)]
-    if args.early_stopping_patience > 0:
+    callbacks = [MetadataSavingCallback(config)]
+    if args.early_stopping_patience is not None and args.early_stopping_patience >= 0:
         callbacks.append(EarlyStoppingCallback(early_stopping_patience=args.early_stopping_patience))
     status(f"callbacks: {callbacks}", end='')
-    collator = DataCollatorForCompletionOnlyLM(
-        instruction_template=tokenizer(args.instruction_template, add_special_tokens=False)["input_ids"][1:],
-        response_template=tokenizer(args.response_template, add_special_tokens=False)["input_ids"][1:],
+    collator = get_collator(
         tokenizer=tokenizer,
-    ) if args.response_template is not None else None
+        instruction_template=args.instruction_template,
+        response_template=args.response_template,
+    )
     trainer = OdinTrainer(
         model=model,
         train_dataset=train_dataset,
         eval_dataset=eval_dataset,
         peft_config=peft_config,
-        packing=args.packing,
-        dataset_text_field="text",
-        max_seq_length=args.seq_length,
         tokenizer=tokenizer,
         args=training_args,
         callbacks=callbacks,
-        neftune_noise_alpha=args.neftune_noise_alpha,
         data_collator=collator,
+        **config.trainer_args,
     )
     end()
     start("Saving metadata on main process")
     accelerator = Accelerator()
     if accelerator.is_main_process:
-        save_metadata(model.metadata, args, args.output_dir)
+        save_metadata(model.metadata, config, args.trained_model)
     accelerator.wait_for_everyone()
     end()
     do_train(
         trainer,
-        output_dir=args.output_dir,
+        output_dir=args.trained_model,
     )

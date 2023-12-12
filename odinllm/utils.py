@@ -2,10 +2,11 @@ from accelerate import Accelerator
 from argparse import Namespace
 import logging
 import os
-import sys
 import time
 import torch
 from tqdm import tqdm
+import transformers
+import yaml
 
 # logging
 logging.basicConfig(
@@ -13,47 +14,44 @@ logging.basicConfig(
 )
 
 # arguments
-def update_key(kwargs, key, val):
-    kwargs["_"+key] = kwargs[key]
-    kwargs[key] = val
+def merge_config(base, update, ignore_none):
+    if isinstance(base, dict):
+        assert(isinstance(update, dict))
+        for key, val in update.items():
+            base[key] = merge_config(base.get(key, None), val, ignore_none=ignore_none)
+        return base
+    if isinstance(base, list):
+        assert(isinstance(update, list))
+        base.extend(update)
+        return base
+    if ignore_none and update is None:
+        return base
+    return update
 
-def parse_args(func):
+def eval_config(config):
+    if isinstance(config, dict):
+        return {key: eval_config(val) for key, val in config.items()}
+    elif isinstance(config, list):
+        return [eval_config(item) for item in config]
+    return eval(config[2:]) if isinstance(config, str) and config.startswith("::") else config
+
+def args_config(func):
     def parse(**kwargs):
-        for key, val in list(kwargs.items()):
-            if key == "device_map":
-                update_key(kwargs, key, parse_device_map(val))
-            elif key == "target_modules":
-                update_key(kwargs, key, eval(val))
-            elif key.endswith("_template"):
-                update_key(kwargs, key, eval(f"'{val}'"))
-            elif key.endswith("_class"):
-                import transformers
-                update_key(kwargs, key, eval(f"transformers.{val}"))
-            elif key.endswith("_dtype"):
-                import torch
-                update_key(kwargs, key, eval(f"torch.{val}"))
-            elif isinstance(val, str) and val[0] in ("[", "{"):
-                update_key(kwargs, key, eval(val))
-        kwargs["command"] = func.__name__
-        kwargs["argv"] = sys.argv
-        args = Namespace(**kwargs)
-        return func(args)
+        proto_config = dict()
+        for config_file in kwargs["config"]:
+            with open(config_file, "rt") as f:
+                config = yaml.safe_load(f)
+            merge_config(proto_config, config, ignore_none=False)
+        del kwargs["config"]
+        kwargs = {key: (list(val) if isinstance(val, tuple) else val) for key, val in kwargs.items()}
+        merge_config(proto_config, {func.__name__: kwargs}, ignore_none=True)
+        kwconfig = eval_config(proto_config)
+        kwconfig["_config"] = proto_config
+        args = Namespace(**kwconfig[func.__name__])
+        config = Namespace(**kwconfig)
+        return func(args, config)
     parse.__name__ = func.__name__
     return parse
-
-def parse_device_map(device_map):
-    if device_map.isnumeric():
-        return int(device_map)
-    if device_map.strip().startswith("{"):
-        return eval(device_map)
-    return device_map
-
-def unparse_args(original_args):
-    args = dict(vars(original_args))
-    for key in [key for key in args if key.startswith("_")]:
-        args[key[1:]] = args[key]
-        del args[key]
-    return args
 
 # prompt templates
 FEATURES2PROMPT = {
@@ -174,7 +172,7 @@ def file_size(file_name,end='\n'):
     print("%.0fK" % (stat(file_name).st_size/1024),end=end,flush=True)
 
 # metadata
-METADATA_FILENAME="metadata.json"
+METADATA_FILENAME="metadata.yaml"
 
 def metadata_filename(dir):
     return os.path.join(dir, METADATA_FILENAME)

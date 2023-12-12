@@ -1,28 +1,15 @@
 import click
 from datasets import load_dataset
 import os
-import torch
 
 from .shared import save_metadata, save_model, save_tokenizer
-from .utils import end, parse_args, start, status, trainable_parameters
+from .utils import args_config, end, start, status, trainable_parameters
 
-def get_model_config(args):
-    start("Building model config")
-    config_kwargs = {
-        "rms_norm_eps": args.model_rms_norm_eps,
-        "torch_dtype": args.model_torch_dtype,
-    }
-    for key, val in vars(args).items():
-        if key.startswith("model_") and isinstance(val, int):
-            config_kwargs[key[len("model_"):]] = val
-    config = args.config_class(**config_kwargs)
-    status(config)
-    return config
-
-def init_model(model_class, model_config):
+def init_model(config_class, model_class, torch_dtype, config):
     start("Creating untrained model")
+    model_config = config_class(**config.model_config)
     model = model_class(model_config)
-    model = model.to(torch.bfloat16)
+    model = model.to(torch_dtype)
     _, all_params = trainable_parameters(model)
     status(f"#params: {all_params}", end='')
     assert "metadata" not in model.__dict__
@@ -59,29 +46,18 @@ def init_tokenizer(tokenizer_class, tokenizer_template, vocab_size, min_frequenc
 def _init():
     pass
 @_init.command()
+@click.argument("config", type=click.Path(exists=True), nargs=-1)
 @click.argument("untrained-model", type=str)
-@click.argument("corpora", type=click.Path(exists=True), nargs=-1)
-@click.option("--tokenizer-class", default="LlamaTokenizerFast", type=str)
-@click.option("--tokenizer-template", default="meta-llama/Llama-2-7b-hf", type=str)
-@click.option("--config-class", default="LlamaConfig", type=str)
-@click.option("--model-class", default="LlamaForCausalLM", type=str)
-@click.option("--model-rms-norm-eps", default=1e-05, type=float)
-@click.option("--model-torch-dtype", default="bfloat16", type=str)
-@click.option("--model-hidden-size", default=None, type=int)
-@click.option("--model-max-position-embeddings", default=None, type=int)
-@click.option("--model-num-attention-heads", default=None, type=int)
-@click.option("--model-num-hidden-layers", default=None, type=int)
-@click.option("--model-num-key-value-heads", default=None, type=int)
-@click.option("--model-vocab-size", default=None, type=int)
-@click.option("--tokenizer-min-frequency", default=0, type=int)
-@parse_args
-def init(args):
-    model_config = get_model_config(args)
+@click.option("--corpora", type=click.Path(exists=True), multiple=True)
+@args_config
+def init(args, config):
     model = init_model(
+        config_class=args.config_class,
         model_class=args.model_class,
-        model_config=model_config,
+        torch_dtype=args.torch_dtype,
+        config=config,
     )
-    save_model(model, args.untrained_model, qualifier="untrained model")
+    save_model(model, args.untrained_model)
     tokenizer = init_tokenizer(
         tokenizer_class=args.tokenizer_class,
         tokenizer_template=args.tokenizer_template,
@@ -90,4 +66,4 @@ def init(args):
         corpora=args.corpora,
     )
     save_tokenizer(tokenizer, args.untrained_model)
-    save_metadata(model.metadata, args, args.untrained_model)
+    save_metadata(model.metadata, config, args.untrained_model)
