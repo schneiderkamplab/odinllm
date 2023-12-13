@@ -1,5 +1,7 @@
 model:
   torch_dtype: ::torch.float32
+#  attn_implementation: null
+  use_flash_attention_2: false
 training_args:
   output_dir: "output"
   per_device_eval_batch_size: 1
