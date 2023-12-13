@@ -22,9 +22,10 @@ def load_datasets(tokenizer, config):
     elif len(train_datasets) == 1:
         train_datasets = next(iter(train_datasets.values()))
     else:
-        train_datasets = concatenate_datasets(train_datasets)
+        train_datasets = concatenate_datasets(train_datasets.values())
         if config.datasets["shuffle"]:
             train_datasets = train_datasets.shuffle(seed=config.datasets["seed"])
+            train_datasets = train_datasets.flatten_indices()
     eval_datasets = {}
     for dataset in config.datasets["eval_datasets"]:
         eval_datasets[dataset["name"]] = load_dataset_single(
@@ -59,6 +60,7 @@ def load_dataset_single(tokenizer, dataset, num_proc, seq_length, seed):
     if dataset.get("shuffle", False):
         start("Shuffling dataset")
         ds = ds.shuffle(seed=seed)
+        ds = ds.flatten_indices()
         end()
     start("Slicing dataset")
     def fix(index):

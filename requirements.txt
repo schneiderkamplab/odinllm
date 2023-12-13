@@ -5,6 +5,7 @@ optimum
 py7zr
 scipy
 sentencepiece
+transformers<4.36.0
 trl
 wandb
 zstandard

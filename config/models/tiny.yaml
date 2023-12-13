@@ -4,6 +4,8 @@ init:
   torch_dtype: ::torch.float32
   tokenizer_class: ::transformers.LlamaTokenizerFast
   tokenizer_template: mistralai/Mistral-7B-v0.1
+  corpora:
+  - data/ft-1000.jsonl
 model_config:
   torch_dtype: ::torch.float32
   hidden_size: 64

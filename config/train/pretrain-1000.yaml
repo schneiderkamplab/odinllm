@@ -1,18 +1,26 @@
 model:
   torch_dtype: ::torch.float32
+#  attn_implementation: null
+  use_flash_attention_2: false
+train:
+  peft: false
 training_args:
   per_device_eval_batch_size: 1
   per_device_train_batch_size: 1
   bf16: false
   report_to: null
+trainer_args:
+  packing: false
 datasets:
   train_datasets:
     - split: "train"
       shuffle: true
-      name: "data/alpaca-da-1000.jsonl"
+      name: "data/ft-1000.jsonl"
       infinite: true
+      from_index: 100
   eval_datasets:
     - split: "train"
       shuffle: true
-      name: "data/Vicuna-da-1000.jsonl"
+      name: "data/ft-1000.jsonl"
       infinite: false
+      to_index: 100
