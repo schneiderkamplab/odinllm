@@ -100,6 +100,7 @@ def load_metadata(dir):
     if os.path.isfile(meta):
         with open(meta, "rt") as f:
             return list(yaml.safe_load_all(f))
+    return []
 
 def load_model(model_dir, config):
     start("Loading pretrained model from", model_dir)
