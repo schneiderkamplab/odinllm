@@ -17,10 +17,10 @@ datasets:
       shuffle: true
       name: "data/ft-1000.jsonl"
       infinite: true
-      from_index: 100
+      from: 100
   eval_datasets:
     - split: "train"
       shuffle: true
       name: "data/ft-1000.jsonl"
       infinite: false
-      to_index: 100
+      to: 100
