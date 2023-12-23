@@ -14,7 +14,6 @@ def load_datasets(tokenizer, config):
             tokenizer=tokenizer,
             dataset=dataset,
             num_proc=config.datasets["num_proc"],
-            seq_length=config.datasets["seq_length"],
             seed=config.datasets["seed"],
         )
     if len(train_datasets) == 0:
@@ -26,22 +25,50 @@ def load_datasets(tokenizer, config):
         if config.datasets["shuffle"]:
             train_datasets = train_datasets.shuffle(seed=config.datasets["seed"])
             train_datasets = train_datasets.flatten_indices()
+    if train_datasets is not None:
+        train_datasets = load_dataset_finalize(
+            train_datasets,
+            tokenizer=tokenizer,
+            dataset=dataset,
+            seq_length=config.datasets["seq_length"],
+        )
     eval_datasets = {}
     for dataset in config.datasets["eval_datasets"]:
-        eval_datasets[dataset["name"]] = load_dataset_single(
+        eval_dataset = load_dataset_single(
             tokenizer=tokenizer,
             dataset=dataset,
             num_proc=config.datasets["num_proc"],
-            seq_length=config.datasets["seq_length"],
             seed=config.datasets["seed"],
         )
+        eval_dataset = load_dataset_finalize(
+            eval_dataset,
+            tokenizer=tokenizer,
+            dataset=dataset,
+            seq_length=config.datasets["seq_length"],
+        )
+        eval_datasets[dataset["name"]] = eval_dataset
     if len(eval_datasets) == 0:
         eval_datasets = None
     elif len(eval_datasets) == 1:
         eval_datasets = next(iter(eval_datasets.values()))
     return train_datasets, eval_datasets
 
-def load_dataset_single(tokenizer, dataset, num_proc, seq_length, seed):
+def load_dataset_finalize(ds, tokenizer, dataset, seq_length):
+    start("Preprocessing the dataset")
+    chars_per_token = chars_token_ratio(ds, tokenizer, prepare_sample_text=format_text, prepare_sample_text_kwargs={"tokenizer": tokenizer})
+    status(f"chars/token: {chars_per_token:.2f}", end='')
+    ds = ConstantLengthDataset(
+        tokenizer,
+        ds,
+        dataset_text_field="text",
+        infinite=dataset["infinite"],
+        seq_length=seq_length,
+        chars_per_token=chars_per_token,
+    )
+    end()
+    return ds
+
+def load_dataset_single(tokenizer, dataset, num_proc, seed):
     start("Loading dataset from", dataset["name"])
     if os.path.isfile(dataset["name"]):
         ds = load_dataset(
@@ -73,17 +100,8 @@ def load_dataset_single(tokenizer, dataset, num_proc, seq_length, seed):
     to_index = fix(dataset.get("to", len(ds)))
     ds = ds.select(range(from_index, to_index))
     end()
-    start("Preprocessing the dataset")
-    chars_per_token = chars_token_ratio(ds, tokenizer, prepare_sample_text=format_text, prepare_sample_text_kwargs={"tokenizer": tokenizer})
-    status(f"chars/token: {chars_per_token:.2f}", end='')
-    ds = ConstantLengthDataset(
-        tokenizer,
-        ds,
-        formatting_func=lambda x: format_text(x, tokenizer=tokenizer),
-        infinite=dataset["infinite"],
-        seq_length=seq_length,
-        chars_per_token=chars_per_token,
-    )
+    status("Applying templates")
+    ds = ds.map(lambda x: {"text": format_text(x, tokenizer=tokenizer)})
     end()
     return ds
 
