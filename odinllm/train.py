@@ -59,14 +59,14 @@ def get_collator(tokenizer, instruction_template, response_template):
     )
     return collator
 
-def do_train(trainer, output_dir):
+def do_train(trainer, output_dir, resume_from_checkpoint):
     torch.set_warn_always(False)
     start("Training")
     trainable_params, all_params = trainable_parameters(trainer.model)
     status(f"#trainable-params: {trainable_params}; #all-params: {all_params}; %trainable: {100 * trainable_params / all_params}", end='')
     if trainer.eval_dataset is not None:
         print(trainer.evaluate())
-    trainer.train()
+    trainer.train(resume_from_checkpoint=resume_from_checkpoint)
     if trainer.eval_dataset is not None:
         print(trainer.evaluate())
     trainer.save_model(output_dir)
@@ -102,6 +102,7 @@ def _train():
 @click.option("--early-stopping-patience", default=None, type=int)
 @click.option("--instruction-template", default=None, type=str)
 @click.option("--response-template", default=None, type=str)
+@click.option("--resume-from-checkpoint", default=None, type=str)
 @args_config
 def train(args, config):
     if not args.peft and config.model["load_in_4bit"]:
@@ -151,4 +152,5 @@ def train(args, config):
     do_train(
         trainer,
         output_dir=args.trained_model,
+        resume_from_checkpoint=args.resume_from_checkpoint,
     )
