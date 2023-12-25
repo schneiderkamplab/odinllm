@@ -1,0 +1,46 @@
+model:
+  torch_dtype: ::torch.bfloat16
+  use_flash_attention_2: true
+train:
+  peft: true
+training_args:
+  per_device_eval_batch_size: 16
+  per_device_train_batch_size: 4
+  gradient_accumulation_steps: 1
+  bf16: true
+  report_to: null
+trainer_args:
+  packing: true
+datasets:
+  train_datasets:
+    - split: "train"
+      shuffle: true
+      name: "data/bibliotek-315579.jsonl"
+      infinite: true
+      from: 1000
+    - split: "train"
+      shuffle: true
+      name: "data/Vicuna.da.json"
+      infinite: true
+      from: 1000
+  eval_datasets:
+    - split: "train"
+      shuffle: true
+      name: "data/bibliotek-315579.jsonl"
+      infinite: false
+      to: 1000
+    - split: "train"
+      shuffle: true
+      name: "data/Vicuna.da.json"
+      infinite: false
+      to: 1000
+    - split: "train"
+      shuffle: true
+      name: "data/ft.json"
+      infinite: false
+      to: 100
+    - split: "train"
+      shuffle: true
+      name: "data/alpaca_gpt4_data.da.json"
+      infinite: false
+      to: 1000

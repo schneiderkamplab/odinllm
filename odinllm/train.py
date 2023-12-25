@@ -69,6 +69,8 @@ def do_train(trainer, output_dir, resume_from_checkpoint):
     trainer.train(resume_from_checkpoint=resume_from_checkpoint)
     if trainer.eval_dataset is not None:
         print(trainer.evaluate())
+    end()
+    start("Saving model")
     trainer.save_model(output_dir)
     end()
 
