@@ -1,20 +1,21 @@
 model:
   torch_dtype: ::torch.bfloat16
   use_flash_attention_2: true
+  load_in_4bit: true
 train:
   peft: true
 #  instruction_template: "\n\nInstruction:\n"
 #  response_template: "\n\nResponse:\n"
 training_args:
   per_device_eval_batch_size: 16
-  per_device_train_batch_size: 16
+  per_device_train_batch_size: 4
   gradient_accumulation_steps: 1
   bf16: true
   report_to: wandb
   save_strategy: "no"
   load_best_model_at_end: false
 trainer_args:
-#  max_seq_length: 2048
+  max_seq_length: 4096
   packing: true
 datasets:
   train_datasets:

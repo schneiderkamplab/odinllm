@@ -19,7 +19,7 @@ model:
   torch_dtype: ::torch.bfloat16
 #  attn_implementation: "flash_attention_2"
   use_flash_attention_2: true
-  use_cache: false
+#  use_cache: false
   revision: main
   load_in_4bit: false
   device_map: auto

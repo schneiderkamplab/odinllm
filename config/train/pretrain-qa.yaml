@@ -1,6 +1,6 @@
 model:
   torch_dtype: ::torch.bfloat16
-  use_flash_attention_2: true
+  use_flash_attention_2: false
 train:
   peft: false
 #  instruction_template: "\n\nInstruction:\n"
@@ -13,6 +13,7 @@ training_args:
   report_to: wandb
   save_strategy: "no"
   load_best_model_at_end: false
+  gradient_checkpointing: false
 trainer_args:
 #  max_seq_length: 2048
   packing: true
