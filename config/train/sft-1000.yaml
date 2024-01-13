@@ -18,3 +18,12 @@ datasets:
       shuffle: true
       name: "data/Vicuna-da-1000.jsonl"
       infinite: false
+  quantize_datasets:
+    - split: "train"
+      shuffle: true
+      name: "data/alpaca-da-1000.jsonl"
+      infinite: false
+    - split: "train"
+      shuffle: true
+      name: "data/Vicuna-da-1000.jsonl"
+      infinite: false

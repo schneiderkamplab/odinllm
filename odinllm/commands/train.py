@@ -6,9 +6,9 @@ import torch
 from transformers import EarlyStoppingCallback, TrainerCallback, TrainingArguments
 from trl.trainer import DataCollatorForCompletionOnlyLM
 
-from .shared import load_datasets, load_model, load_tokenizer, save_metadata
-from .trainer import OdinTrainer
-from .utils import (
+from ..shared import load_datasets, load_model, load_tokenizer, save_metadata
+from ..trainer import OdinTrainer
+from ..utils import (
     args_config,
     end,
     get_device_map,
@@ -97,7 +97,7 @@ def get_training_args(
 def _train():
     pass
 @_train.command()
-@click.argument("config", type=click.Path(exists=True), nargs=-1)
+@click.argument("config", type=click.Path(exists=False), nargs=-1)
 @click.argument("base-model", type=click.Path(exists=True))
 @click.argument("trained-model", type=click.Path(exists=False))
 @click.option("--peft", default=None, type=bool)
@@ -105,8 +105,13 @@ def _train():
 @click.option("--instruction-template", default=None, type=str)
 @click.option("--response-template", default=None, type=str)
 @click.option("--resume-from-checkpoint", default=None, type=str)
+@click.option("--every", "-e", default=None, type=int)
+@click.option("--layers", "-t", default=None, type=str)
 @args_config
 def train(args, config):
+    return __train(args, config)
+
+def __train(args, config):
     if not args.peft and config.model["load_in_4bit"]:
         status("deactivating load_in_4bit for full training")
         config.model["load_in_4bit"] = False
@@ -123,6 +128,11 @@ def train(args, config):
         model=model,
         config=config,
     ) if args.peft else None
+    if args.every is not None:
+        for i, layer in enumerate(model.get_submodule(args.layers)):
+            if i % args.every != 0:
+                for param in layer.parameters():
+                    param.requires_grad = False
     start("Setting up training")
     callbacks = [MetadataSavingCallback(config)]
     if args.early_stopping_patience is not None and args.early_stopping_patience >= 0:

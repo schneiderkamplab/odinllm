@@ -1,6 +1,6 @@
 import click
-from .shared import load_lora, load_model, load_tokenizer, save_metadata, save_model, save_tokenizer
-from .utils import args_config, end, start
+from ..shared import load_lora, load_model, load_tokenizer, save_metadata, save_model, save_tokenizer
+from ..utils import args_config, end, start
 
 def merge_model(model):
     start("Merging LoRA adapter into pretrained model")
@@ -19,6 +19,9 @@ def _merge():
 @click.argument("merged-model", type=click.Path(exists=False))
 @args_config
 def merge(args, config):
+    return __merge(args, config)
+
+def __merge(args, config):
     base_model = load_model(args.pretrained_model, config)
     lora_model = load_lora(base_model, args.lora_model)
     merged_model = merge_model(lora_model)

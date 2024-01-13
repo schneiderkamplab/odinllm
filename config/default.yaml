@@ -6,7 +6,6 @@ gptq_config:
   bits: 4
   group_size: 32
   desc_act: false
-  dataset: c4
 peft_config:
   r: 16
   lora_alpha: 32
@@ -83,6 +82,7 @@ datasets:
   seed: 42
   train_datasets: []
   eval_datasets: []
+  quantize_datasets: []
 trainer_args:
   packing: true
   max_seq_length: 1024
@@ -91,3 +91,16 @@ trainer_args:
 train:
   peft: true
   early_stopping_patience: -1
+  layers: model.layers
+  every: null
+infer:
+  run_prompt: []
+  max_new_tokens: 128
+expand:
+  every: 4
+  layers: model.layers
+  zero:
+    - self_attn.o_proj
+    - mlp.down_proj
+snapshot:
+  file_name: []

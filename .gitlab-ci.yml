@@ -77,6 +77,16 @@ quantize:
     paths:
       - models/test-gptq
 
+expand:
+  extends: .stage1Template
+  script:
+    - python -m odinllm expand config/default.yaml config/train/sft-1000.yaml models/neox models/neox-expanded --layers gpt_neox.layers --zero attention.dense --zero mlp.dense_4h_to_h
+  needs:
+    - snapshot
+  artifacts:
+    paths:
+      - models/neox-expanded
+
 .stage2Template:
   extends: .odinllmTemplate
   stage: stage2
@@ -110,3 +120,9 @@ merge:
     paths:
       - models/test-merged
 
+launch:
+  extends: .stage2Template
+  script:
+    - python -m odinllm launch models/neox-expanded/metadata.yaml
+  needs:
+    - expand

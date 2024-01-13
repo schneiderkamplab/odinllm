@@ -2,9 +2,9 @@ import click
 from datasets import Dataset
 from transformers import TrainingArguments
 
-from .shared import load_datasets, load_model, load_tokenizer
-from .trainer import OdinTrainer
-from .utils import args_config, end, start
+from ..shared import load_datasets, load_model, load_tokenizer
+from ..trainer import OdinTrainer
+from ..utils import args_config, end, start
 
 def do_eval(trainer):
     start("Evaluating")
@@ -15,10 +15,13 @@ def do_eval(trainer):
 def _eval():
     pass
 @_eval.command()
-@click.argument("config", type=click.Path(exists=True), nargs=-1)
+@click.argument("config", type=click.Path(exists=False), nargs=-1)
 @click.argument("pretrained-model", type=click.Path(exists=True))
 @args_config
 def eval(args, config):
+    return __eval(args, config)
+
+def __eval(args, config):
     model = load_model(
         args.pretrained_model,
         config,

@@ -2,8 +2,8 @@ import click
 from datasets import load_dataset
 import os
 
-from .shared import save_metadata, save_model, save_tokenizer
-from .utils import args_config, end, start, status, trainable_parameters
+from ..shared import save_metadata, save_model, save_tokenizer
+from ..utils import args_config, end, start, status, trainable_parameters
 
 def init_model(config_class, model_class, torch_dtype, config):
     start("Creating untrained model")
@@ -46,11 +46,14 @@ def init_tokenizer(tokenizer_class, tokenizer_template, vocab_size, min_frequenc
 def _init():
     pass
 @_init.command()
-@click.argument("config", type=click.Path(exists=True), nargs=-1)
+@click.argument("config", type=click.Path(exists=False), nargs=-1)
 @click.argument("untrained-model", type=str)
-@click.option("--corpora", type=click.Path(exists=True), multiple=True)
+@click.option("--corpora", default=None, type=click.Path(exists=True), multiple=True)
 @args_config
 def init(args, config):
+    return __init(args, config)
+
+def __init(args, config):
     model = init_model(
         config_class=args.config_class,
         model_class=args.model_class,
