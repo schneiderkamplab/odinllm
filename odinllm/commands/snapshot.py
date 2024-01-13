@@ -3,19 +3,22 @@ from huggingface_hub import  hf_hub_download, snapshot_download
 from os import getcwd
 from shutil import copy, copytree
 
-from .shared import save_metadata
-from .utils import args_config, end, start
+from ..shared import save_metadata
+from ..utils import args_config, end, start
 
 @click.group()
 def _snapshot():
     pass
 @_snapshot.command()
-@click.argument("config", type=click.Path(exists=True), nargs=-1)
+@click.argument("config", type=click.Path(exists=False), nargs=-1)
 @click.argument("repo-id", type=str)
-@click.option("--file-name", default=[], type=str, multiple=True)
+@click.option("--file-name", default=None, type=str, multiple=True)
 @click.option("--target-dir", default=None, type=str)
 @args_config
 def snapshot(args, config):
+    return __snapshot(args, config)
+
+def __snapshot(args, config):
     if not args.file_name:
         start("Snapshotting repository", args.repo_id)
         cache_dirname = snapshot_download(repo_id=args.repo_id)

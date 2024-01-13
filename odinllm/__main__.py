@@ -1,19 +1,23 @@
 import click
 
-from .eval import _eval
-from .finalize import _finalize
-from .infer import _infer
-from .init import _init
-from .merge import _merge
-from .quantize import _quantize
-from .snapshot import _snapshot
-from .train import _train
+from .commands.eval import _eval
+from .commands.expand import _expand
+from .commands.finalize import _finalize
+from .commands.infer import _infer
+from .commands.init import _init
+from .commands.launch import _launch
+from .commands.merge import _merge
+from .commands.quantize import _quantize
+from .commands.snapshot import _snapshot
+from .commands.train import _train
 
 cli = click.CommandCollection(sources=[
     _eval,
+    _expand,
     _finalize,
     _infer,
     _init,
+    _launch,
     _merge,
     _quantize,
     _snapshot,

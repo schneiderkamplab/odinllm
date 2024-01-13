@@ -2,19 +2,22 @@ import click
 import os
 import torch
 
-from .shared import load_lora, load_model, load_tokenizer, save_metadata, save_model, save_tokenizer
-from .utils import args_config, start, status
+from ..shared import load_lora, load_model, load_tokenizer, save_metadata, save_model, save_tokenizer
+from ..utils import args_config, start, status
 
 @click.group()
 def _finalize():
     pass
 @_finalize.command()
-@click.argument("config", type=click.Path(exists=True), nargs=-1)
+@click.argument("config", type=click.Path(exists=False), nargs=-1)
 @click.argument("training-dir", type=click.Path(exists=True))
 @click.option("--checkpoint", default=None, type=int)
 @click.option("--base-model", default=None, type=click.Path(exists=True))
 @args_config
 def finalize(args, config):
+    return __finalize(args, config)
+
+def __finalize(args, config):
     start("Determining checkpoint location")
     if args.checkpoint is None:
         best_link = os.path.join(args.training_dir, "best")

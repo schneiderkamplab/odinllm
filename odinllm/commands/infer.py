@@ -1,9 +1,9 @@
 import click
 
-from .shared import load_tokenizer, load_model, load_lora
-from .utils import EXAMPLE_PROMPTS, args_config, end, start
+from ..shared import load_tokenizer, load_model, load_lora
+from ..utils import EXAMPLE_PROMPTS, args_config, end, start
 
-def run_prompt(model, tokenizer, run_prompts=[], max_new_tokens=128):
+def run_prompt(model, tokenizer, run_prompts, max_new_tokens):
     results = []
     if run_prompts:
         for run_prompt in run_prompts:
@@ -23,13 +23,16 @@ def run_prompt(model, tokenizer, run_prompts=[], max_new_tokens=128):
 def _infer():
     pass
 @_infer.command()
-@click.argument("config", type=click.Path(exists=True), nargs=-1)
+@click.argument("config", type=click.Path(exists=False), nargs=-1)
 @click.argument("pretrained-model", type=click.Path(exists=True))
 @click.option("--lora-adapter", "-l", default=None, help="Optional LoRA adapter to load with PEFT")
-@click.option("--run-prompt", "-p", default=[], help="Prompt to run instead of example prompts", multiple=True)
-@click.option("--max-new-tokens", "-t", default=128, help="Maximum number of new tokens to generate")
+@click.option("--run-prompt", "-p", default=None, help="Prompt to run instead of example prompts", multiple=True)
+@click.option("--max-new-tokens", "-t", default=None, help="Maximum number of new tokens to generate")
 @args_config
 def infer(args, config):
+    return __infer(args, config)
+
+def __infer(args, config):
     tokenizer = load_tokenizer(args.pretrained_model, config)
     model = load_model(
         args.pretrained_model,

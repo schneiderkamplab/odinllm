@@ -1,12 +1,10 @@
+* fix quantization problem with c4 dataset (realnewslike?)
+* add bnb quantization (save_pretrained 4bit and 8bit from transformers 4.37)
+* test multi-GPU multi-node with tranformers 4.37
 * test chat templates
-* move corpora into yaml file for init (eg ft-1000.jsonl to tiny.yaml)
-* check that all config.CMD params can be overriden on the command line (e.g. init)
-* how to override other params from command line (training_args.bf16=true)
-* no infinite configuration but depending on eval/train?
-* move all commands to subdirectory
+* infinite is deprecated in newest trl - remove?
 * update README with different scenarios (full training, lora, pseudo qlora, pre-training)
-* add launch command that takes configs and runs the preconfigured commands (list of commands as an argument, command arguments from yaml)
-* play with neftune
+* play with neftune?
 * update OdinTrainer with next trl release
 * update OdinTrainer with next transformers release that incorporates the changes
 * evaluate mistral 7b sft beta

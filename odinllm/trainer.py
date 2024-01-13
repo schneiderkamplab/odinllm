@@ -7,49 +7,6 @@ from trl import SFTTrainer
 
 class OdinTrainer(SFTTrainer):
 
-    def __init__(
-        self,
-        eval_dataset: Optional[Union[Dataset, Dict[str, Dataset]]] = None,
-        tokenizer: Optional[PreTrainedTokenizerBase] = None,
-        dataset_text_field: Optional[str] = None,
-        packing: Optional[bool] = False,
-        formatting_func: Optional[Callable] = None,
-        max_seq_length: Optional[int] = None,
-        infinite: Optional[bool] = False,
-        num_of_sequences: Optional[int] = 1024,
-        chars_per_token: Optional[float] = 3.6,
-        **kwargs,
-    ):
-        if eval_dataset is not None:
-            multiple = isinstance(eval_dataset, dict)
-            eval_datasets = eval_dataset if multiple else {"singleton": eval_dataset}
-            for eval_dataset_name, _eval_dataset in eval_datasets.items():
-                eval_datasets[eval_dataset_name] = self._prepare_dataset(
-                    _eval_dataset,
-                    tokenizer,
-                    packing,
-                    dataset_text_field,
-                    max_seq_length,
-                    formatting_func,
-                    infinite,
-                    num_of_sequences,
-                    chars_per_token,
-                )
-            if not multiple:
-                eval_dataset = eval_datasets["singleton"]
-        super().__init__(
-            eval_dataset=eval_dataset,
-            tokenizer=tokenizer,
-            dataset_text_field=dataset_text_field,
-            packing=packing,
-            formatting_func=formatting_func,
-            max_seq_length=max_seq_length,
-            infinite=infinite,
-            num_of_sequences=num_of_sequences,
-            chars_per_token=chars_per_token,
-            **kwargs,
-        )
-
     @wraps(SFTTrainer.evaluate)
     def evaluate(
         self,
@@ -84,7 +41,8 @@ class OdinTrainer(SFTTrainer):
         self,
         dataset,
         *args,
+        **kwargs,
     ):
         if isinstance(dataset, dict):
             return dataset
-        return super()._prepare_dataset(dataset, *args)
+        return super()._prepare_dataset(dataset, *args, **kwargs)

@@ -53,6 +53,19 @@ def load_datasets(tokenizer, config):
         eval_datasets = next(iter(eval_datasets.values()))
     return train_datasets, eval_datasets
 
+def load_datasets_quantize(tokenizer, config):
+    quantize_datasets = {}
+    for dataset in config.datasets["quantize_datasets"]:
+        quantize_dataset = load_dataset_single(
+            tokenizer=tokenizer,
+            dataset=dataset,
+            num_proc=config.datasets["num_proc"],
+            seed=config.datasets["seed"],
+        )
+        quantize_datasets[dataset["name"]] = quantize_dataset
+    quantize_datasets = [row["text"] for quantize_dataset in quantize_datasets.values() for row in quantize_dataset]
+    return quantize_datasets
+
 def load_dataset_finalize(ds, tokenizer, dataset, seq_length):
     start("Preprocessing the dataset")
     chars_per_token = chars_token_ratio(ds, tokenizer, prepare_sample_text=format_text, prepare_sample_text_kwargs={"tokenizer": tokenizer})
