@@ -57,6 +57,7 @@ training_args:
   save_total_limit: 1
   load_best_model_at_end: true
   metric_for_best_model: null
+  greater_is_better: false
   evaluation_strategy: steps
   do_eval: true
   gradient_checkpointing: true
@@ -69,10 +70,11 @@ training_args:
   weight_decay: 0.05
   optim: paged_adamw_32bit
   remove_unused_columns: true
-  run_name: None
+  run_name: null
   report_to: wandb
   seed: 42
   ddp_find_unused_parameters: false
+  output_dir: null
 datasets:
   num_proc: 24
   shuffle_buffer: 5000
@@ -93,14 +95,19 @@ train:
   early_stopping_patience: -1
   layers: model.layers
   every: null
+  experts: block_sparse_moe.experts
+  train_experts: null
 infer:
   run_prompt: []
   max_new_tokens: 128
 expand:
-  every: 4
+  every: null
   layers: model.layers
   zero:
     - self_attn.o_proj
     - mlp.down_proj
+  add_experts: null
+  gate: block_sparse_moe.gate
+  experts: block_sparse_moe.experts
 snapshot:
   file_name: []

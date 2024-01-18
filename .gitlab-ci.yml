@@ -80,7 +80,7 @@ quantize:
 expand:
   extends: .stage1Template
   script:
-    - python -m odinllm expand config/default.yaml config/train/sft-1000.yaml models/neox models/neox-expanded --layers gpt_neox.layers --zero attention.dense --zero mlp.dense_4h_to_h
+    - python -m odinllm expand config/default.yaml config/train/sft-1000.yaml models/neox models/neox-expanded --layers gpt_neox.layers --zero attention.dense --zero mlp.dense_4h_to_h --every 4
   needs:
     - snapshot
   artifacts:

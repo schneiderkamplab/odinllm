@@ -7,13 +7,13 @@ train:
 #  response_template: "\n\nResponse:\n"
 training_args:
   per_device_eval_batch_size: 16
-  per_device_train_batch_size: 1
-  gradient_accumulation_steps: 16
+  per_device_train_batch_size: 4
+  gradient_accumulation_steps: 4
   bf16: true
   report_to: wandb
-  save_strategy: "no"
-  load_best_model_at_end: false
-  gradient_checkpointing: false
+  save_strategy: "steps"
+  load_best_model_at_end: true
+  gradient_checkpointing: true
 trainer_args:
 #  max_seq_length: 2048
   packing: true
@@ -70,3 +70,8 @@ datasets:
       name: "data/hc3-chatgpt-da.json"
       infinite: false
       to: 100
+  quantize_datasets:
+    - split: "train"
+      shuffle: true
+      name: "data/alpaca-da-1000.jsonl"
+      infinite: false

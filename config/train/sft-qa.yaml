@@ -12,8 +12,8 @@ training_args:
   gradient_accumulation_steps: 1
   bf16: true
   report_to: wandb
-  save_strategy: "no"
-  load_best_model_at_end: false
+  save_strategy: steps
+  load_best_model_at_end: true
 trainer_args:
   max_seq_length: 4096
   packing: true
