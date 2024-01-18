@@ -8,6 +8,15 @@ training_args:
   bf16: false
   report_to: null
 datasets:
+  train_datasets:
+    - split: "train"
+      shuffle: true
+      name: "data/alpaca-da-1000.jsonl"
+      infinite: false
+    - split: "train"
+      shuffle: true
+      name: "data/Vicuna-da-1000.jsonl"
+      infinite: false
   eval_datasets:
     - split: "train"
       shuffle: true

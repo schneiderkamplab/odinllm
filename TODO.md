@@ -1,4 +1,3 @@
-* fix quantization problem with c4 dataset (realnewslike?)
 * add bnb quantization (save_pretrained 4bit and 8bit from transformers 4.37)
 * test multi-GPU multi-node with tranformers 4.37
 * test chat templates

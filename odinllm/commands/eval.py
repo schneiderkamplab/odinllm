@@ -22,6 +22,10 @@ def eval(args, config):
     return __eval(args, config)
 
 def __eval(args, config):
+    if config.training_args["run_name"] is None:
+        config.training_args["run_name"] = f"{config.command}_{args.pretrained_model.split('/')[-1]}"
+    if config.training_args["output_dir"] is None:
+        config.training_args["output_dir"] = "output"
     model = load_model(
         args.pretrained_model,
         config,
@@ -30,10 +34,10 @@ def __eval(args, config):
     training_args = TrainingArguments(
         **config.training_args,
     )
-    _, eval_dataset = load_datasets(tokenizer=tokenizer, config=config)
+    train_dataset, eval_dataset = load_datasets(tokenizer=tokenizer, config=config)
     trainer = OdinTrainer(
         model=model,
-        train_dataset=Dataset.from_dict({}),
+        train_dataset=train_dataset,
         eval_dataset=eval_dataset,
         tokenizer=tokenizer,
         args=training_args,

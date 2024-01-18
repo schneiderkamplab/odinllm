@@ -85,13 +85,11 @@ def get_training_args(
         config.training_args["evaluation_strategy"] = "no"
         config.training_args["load_best_model_at_end"] = False
         config.training_args["do_eval"] = False
-    if config.training_args["run_name"] is None:
-        config.training_args["run_name"] = output_dir
+    config.training_args["output_dir"] = output_dir
     training_arguments = TrainingArguments(
-        output_dir=output_dir,
         **config.training_args,
     )
-    return training_arguments    
+    return training_arguments
 
 @click.group()
 def _train():
@@ -107,11 +105,15 @@ def _train():
 @click.option("--resume-from-checkpoint", default=None, type=str)
 @click.option("--every", "-e", default=None, type=int)
 @click.option("--layers", "-t", default=None, type=str)
+@click.option("--experts", "-x", default=None, type=str)
+@click.option("--train-experts", "-a", default=None, type=int)
 @args_config
 def train(args, config):
     return __train(args, config)
 
 def __train(args, config):
+    if config.training_args["run_name"] is None:
+        config.training_args["run_name"] = f"{config.command}_{args.trained_model.split('/')[-1]}"
     if not args.peft and config.model["load_in_4bit"]:
         status("deactivating load_in_4bit for full training")
         config.model["load_in_4bit"] = False
@@ -129,10 +131,23 @@ def __train(args, config):
         config=config,
     ) if args.peft else None
     if args.every is not None:
+        start("Freezing layers")
         for i, layer in enumerate(model.get_submodule(args.layers)):
-            if i % args.every != 0:
-                for param in layer.parameters():
+            status(i, end='')
+            if i % args.every != args.every-1:
+                for name, param in layer.named_parameters():
                     param.requires_grad = False
+                    status(name, end='')
+        end()
+    if args.train_experts is not None:
+        start("Freezing experts")
+        for i, layer in enumerate(list(model.get_submodule(args.layers))[:args.train_experts]):
+            status(i, end='')
+            for expert in layer.get_submodule(args.experts):
+                for name, param in expert.named_parameters():
+                    param.requires_grad = False
+                    status(name, end='')
+        end()
     start("Setting up training")
     callbacks = [MetadataSavingCallback(config)]
     if args.early_stopping_patience is not None and args.early_stopping_patience >= 0:
