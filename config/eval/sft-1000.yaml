@@ -4,7 +4,7 @@ model:
   use_flash_attention_2: false
 training_args:
   output_dir: "output"
-  per_device_eval_batch_size: 1
+  per_device_eval_batch_size: 4
   bf16: false
   report_to: null
 datasets:
