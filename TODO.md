@@ -1,3 +1,5 @@
+* test mixtral-1x
+* parse command line using yaml
 * add bnb quantization (save_pretrained 4bit and 8bit from transformers 4.37)
 * test multi-GPU multi-node with tranformers 4.37
 * test chat templates
