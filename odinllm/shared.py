@@ -135,7 +135,7 @@ def load_metadata(dir):
 
 def load_model(model_dir, config):
     start("Loading pretrained model from", model_dir)
-    bnb_config = BitsAndBytesConfig(**config.bnb_config) if config.model["load_in_4bit"] else None
+    bnb_config = BitsAndBytesConfig(**config.bnb_config) if config.model["load_in_4bit"] or config.model["load_in_8bit"] else None
     model = AutoModelForCausalLM.from_pretrained(
         model_dir,
         quantization_config=bnb_config,

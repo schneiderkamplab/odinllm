@@ -5,42 +5,27 @@ train:
   peft: false
 training_args:
   per_device_eval_batch_size: 16
-  per_device_train_batch_size: 4
-  gradient_accumulation_steps: 4
+  per_device_train_batch_size: 2
+  gradient_accumulation_steps: 1
   bf16: true
   report_to: null
+  logging_steps: 1
+  eval_steps: 10
+  save_steps: 10
 trainer_args:
   packing: true
+  max_seq_length: 8192
 datasets:
+  seq_length: 8192
   train_datasets:
     - split: "train"
       shuffle: true
-      name: "data/bibliotek-315579.jsonl"
+      name: "data/pretrain.jsonl"
       infinite: true
       from: 1000
-    - split: "train"
-      shuffle: true
-      name: "data/ft.json"
-      infinite: true
-      from: 100
   eval_datasets:
     - split: "train"
       shuffle: true
-      name: "data/bibliotek-315579.jsonl"
-      infinite: false
-      to: 1000
-    - split: "train"
-      shuffle: true
-      name: "data/Vicuna.da.json"
-      infinite: false
-      to: 1000
-    - split: "train"
-      shuffle: true
-      name: "data/ft.json"
-      infinite: false
-      to: 100
-    - split: "train"
-      shuffle: true
-      name: "data/alpaca_gpt4_data.da.json"
+      name: "data/pretrain.jsonl"
       infinite: false
       to: 1000
