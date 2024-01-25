@@ -39,11 +39,8 @@ def eval_config(config):
         return [eval_config(item) for item in config]
     return eval(config[2:]) if isinstance(config, str) and config.startswith("::") else config
 
-def parse_config(parts, value):
-    if parts:
-        key, parts = parts[0], parts[1:]
-        return {key: parse_config(parts, value)}
-    return value
+def arg_to_yaml(parts, value):
+    return ':\n'.join(f"{'  '*i}{key}" for i, key in enumerate(parts)) + f": {value}"
 
 def args_config(func):
     def parse(**kwargs):
@@ -54,7 +51,7 @@ def args_config(func):
                     config = yaml.safe_load(f)
             else:
                 parts, value = config_file.split("=", 1)
-                config = parse_config(parts.split("."), value)
+                config = yaml.safe_load(arg_to_yaml(parts.split("."), value))
             merge_config(proto_config, config, ignore_none=False)
         del kwargs["config"]
         kwargs = {key: (list(val) if isinstance(val, tuple) else val) for key, val in kwargs.items()}

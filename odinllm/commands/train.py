@@ -141,9 +141,10 @@ def __train(args, config):
         end()
     if args.train_experts is not None:
         start("Freezing experts")
-        for i, layer in enumerate(list(model.get_submodule(args.layers))[:args.train_experts]):
+        for i, layer in enumerate(list(model.get_submodule(args.layers))):
             status(i, end='')
-            for expert in layer.get_submodule(args.experts):
+            experts = layer.get_submodule(args.experts)
+            for expert in experts[:len(experts)-args.train_experts]:
                 for name, param in expert.named_parameters():
                     param.requires_grad = False
                     status(name, end='')

@@ -1,7 +1,7 @@
 import click
 from transformers import AutoModelForCausalLM, GPTQConfig
 
-from ..shared import load_datasets_quantize, load_metadata, load_tokenizer, save_metadata, save_model, save_tokenizer
+from ..shared import load_datasets_quantize, load_metadata, load_model, load_tokenizer, save_metadata, save_model, save_tokenizer
 from ..utils import args_config, end, start
 
 def load_and_quantize(model_dir, tokenizer, dataset, config):
@@ -35,7 +35,10 @@ def quantize(args, config):
 def __quantize(args, config):
     tokenizer = load_tokenizer(args.pretrained_model, config)
     dataset = load_datasets_quantize(tokenizer, config)
-    model = load_and_quantize(args.pretrained_model, tokenizer=tokenizer, dataset=dataset, config=config)
+    if config.model["load_in_4bit"] or config.model["load_in_8bit"]:
+        model = load_model(args.pretrained_model, config=config)
+    else:
+        model = load_and_quantize(args.pretrained_model, tokenizer=tokenizer, dataset=dataset, config=config)
     save_tokenizer(tokenizer, args.quantized_model)
     save_model(model, args.quantized_model)
     save_metadata(model.metadata, config, args.quantized_model)

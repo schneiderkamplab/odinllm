@@ -54,8 +54,9 @@ def __expand(args, config):
             for j in range(args.add_experts):
                 gate.weight.data = torch.cat((gate.weight.data, gate.weight.data[j:j+1,:]), 0)
                 gate.out_features += 1
-                model.config.num_local_experts += 1
                 experts.append(copy.deepcopy(experts[j % len(experts)]))
+        model.config.num_experts_per_tok = 2
+        model.config.num_local_experts = len(experts)
         status(f"#experts: {len(experts)}", end='')
         status(f"%gate: {gate.weight.data.shape}", end='')
         end()

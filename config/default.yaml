@@ -21,6 +21,7 @@ model:
 #  use_cache: false
   revision: main
   load_in_4bit: false
+  load_in_8bit: false
   device_map: auto
 tokenizer:
   use_fast: true
@@ -73,7 +74,7 @@ training_args:
   run_name: null
   report_to: wandb
   seed: 42
-  ddp_find_unused_parameters: false
+  ddp_find_unused_parameters: true
   output_dir: null
 datasets:
   num_proc: 24
