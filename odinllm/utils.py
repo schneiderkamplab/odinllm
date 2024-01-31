@@ -90,7 +90,7 @@ FEATURES2PROMPT = {
     ("text",): "{text}",
 }
 
-def format_text(sample, tokenizer=None):
+def format_text(sample, tokenizer=None, append_eos=True):
     if "messages" in sample:
         messages = sample["messages"]
         if messages[0]["role"] != "system":
@@ -112,7 +112,7 @@ def format_text(sample, tokenizer=None):
             raise RuntimeError(f"no prompt template for feature combination {features} for sample {sample}")
         sample_clean = sample
     return prompt.format(
-        eos_token=tokenizer.eos_token,
+        eos_token=tokenizer.eos_token if append_eos else "",
         **sample_clean,
     )
 

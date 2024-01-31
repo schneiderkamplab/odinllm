@@ -101,7 +101,7 @@ train:
 infer:
   run_prompt: []
   max_new_tokens: 128
-expand:
+edit:
   every: null
   layers: model.layers
   zero:

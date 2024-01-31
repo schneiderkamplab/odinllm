@@ -14,6 +14,14 @@ stages:
     - conda activate env
     - export WANDB_MODE=disabled
 
+.gpu:
+  zero:
+    - export CUDA_VISIBLE_DEVICES=
+  one:
+    - export CUDA_VISIBLE_DEVICES=$(while ! scripts/cuda.sh 1; do sleep 1; done)
+  two:
+    - export CUDA_VISIBLE_DEVICES=$(while ! scripts/cuda.sh 2; do sleep 1; done)
+
 .stage0Template:
   extends: .odinllmTemplate
   stage: stage0
@@ -21,6 +29,8 @@ stages:
 init:
   extends: .stage0Template
   script:
+    - !reference [.gpu, one]
+    - echo "CUDA_VISIBLE_DEVICES='$CUDA_VISIBLE_DEVICES'"
     - python -m odinllm init config/default.yaml config/models/tiny.yaml models/test
   artifacts:
     paths:
@@ -29,7 +39,9 @@ init:
 snapshot:
   extends: .stage0Template
   script:
-    - python -m odinllm snapshot config/default.yaml peter-sk/gpt-neox-da-tiny --target-dir models/neox
+    - !reference [.gpu, zero]
+    - echo "CUDA_VISIBLE_DEVICES='$CUDA_VISIBLE_DEVICES'"
+    - CUDA_VISIBLE_DEVICES= python -m odinllm snapshot config/default.yaml peter-sk/gpt-neox-da-tiny --target-dir models/neox
   artifacts:
     paths:
       - models/neox
@@ -41,6 +53,8 @@ snapshot:
 eval:
   extends: .stage1Template
   script:
+    - !reference [.gpu, one]
+    - echo "CUDA_VISIBLE_DEVICES='$CUDA_VISIBLE_DEVICES'"
     - python -m odinllm eval config/default.yaml config/eval/sft-1000.yaml models/test
     - python -m odinllm eval config/default.yaml config/eval/sft-1000.yaml models/neox
   needs:
@@ -50,7 +64,9 @@ eval:
 sft:
   extends: .stage1Template
   script:
-    - CUDA_VISIBLE_DEVICES=0 python -m odinllm train config/default.yaml config/train/sft-1000.yaml models/test models/test-sft
+    - !reference [.gpu, one]
+    - echo "CUDA_VISIBLE_DEVICES='$CUDA_VISIBLE_DEVICES'"
+    - python -m odinllm train config/default.yaml config/train/sft-1000.yaml models/test models/test-sft
   needs:
     - init
   artifacts:
@@ -60,7 +76,9 @@ sft:
 pretrain:
   extends: .stage1Template
   script:
-    - WANDB_MODE=disabled NCCL_P2P_DISABLE=1 NCCL_IB_DISABLE=1 NCCL_SOCKET_IFNAME=lo NCCL_P2P_LEVEL=LOC ACCELERATE_LOG_LEVEL=info CUDA_VISIBLE_DEVICES=1,2,3 accelerate launch --main_process_port=29501 --config_file config/accelerate/multi_gpu.yaml --num_processes=2 -m odinllm train config/default.yaml config/train/pretrain-1000.yaml models/test models/test-pretrain
+    - !reference [.gpu, two]
+    - echo "CUDA_VISIBLE_DEVICES='$CUDA_VISIBLE_DEVICES'"
+    - NCCL_P2P_DISABLE=1 NCCL_IB_DISABLE=1 NCCL_SOCKET_IFNAME=lo NCCL_P2P_LEVEL=LOC ACCELERATE_LOG_LEVEL=info accelerate launch --main_process_port=29501 --config_file config/accelerate/multi_gpu.yaml --num_processes=2 -m odinllm train config/default.yaml config/train/pretrain-1000.yaml models/test models/test-pretrain
   needs:
     - init
   artifacts:
@@ -70,6 +88,8 @@ pretrain:
 quantize:
   extends: .stage1Template
   script:
+    - !reference [.gpu, one]
+    - echo "CUDA_VISIBLE_DEVICES='$CUDA_VISIBLE_DEVICES'"
     - python -m odinllm quantize config/default.yaml config/train/sft-1000.yaml models/test models/test-gptq
   needs:
     - init
@@ -77,10 +97,12 @@ quantize:
     paths:
       - models/test-gptq
 
-expand:
+edit:
   extends: .stage1Template
   script:
-    - python -m odinllm expand config/default.yaml config/train/sft-1000.yaml models/neox models/neox-expanded --layers gpt_neox.layers --zero attention.dense --zero mlp.dense_4h_to_h --every 4
+    - !reference [.gpu, one]
+    - echo "CUDA_VISIBLE_DEVICES='$CUDA_VISIBLE_DEVICES'"
+    - python -m odinllm edit config/default.yaml config/train/sft-1000.yaml models/neox models/neox-expanded --layers gpt_neox.layers --zero attention.dense --zero mlp.dense_4h_to_h --add-every 4
   needs:
     - snapshot
   artifacts:
@@ -94,7 +116,9 @@ expand:
 finalize:
   extends: .stage2Template
   script:
-    - python -m odinllm finalize config/default.yaml models/test-sft --base-model models/test
+    - !reference [.gpu, one]
+    - echo "CUDA_VISIBLE_DEVICES='$CUDA_VISIBLE_DEVICES'"
+    - python -m odinllm finalize config/default.yaml config/train/sft-1000.yaml models/test-sft --base-model models/test
   needs:
     - init
     - sft
@@ -102,8 +126,10 @@ finalize:
 infer:
   extends: .stage2Template
   script:
-    - CUDA_VISIBLE_DEVICES=0 python -m odinllm infer config/default.yaml config/train/sft-1000.yaml models/test --lora-adapter models/test-sft
-    - CUDA_VISIBLE_DEVICES=0 python -m odinllm infer config/default.yaml config/train/sft-1000.yaml models/neox
+    - !reference [.gpu, one]
+    - echo "CUDA_VISIBLE_DEVICES='$CUDA_VISIBLE_DEVICES'"
+    - python -m odinllm infer config/default.yaml config/train/sft-1000.yaml models/test --lora-adapter models/test-sft
+    - python -m odinllm infer config/default.yaml config/train/sft-1000.yaml models/neox
   needs:
     - init
     - sft
@@ -112,7 +138,9 @@ infer:
 merge:
   extends: .stage2Template
   script:
-    - python -m odinllm merge config/default.yaml models/test models/test-sft models/test-merged
+    - !reference [.gpu, one]
+    - echo "CUDA_VISIBLE_DEVICES='$CUDA_VISIBLE_DEVICES'"
+    - python -m odinllm merge config/default.yaml config/train/sft-1000.yaml models/test models/test-sft models/test-merged
   needs:
     - init
     - sft
@@ -123,6 +151,8 @@ merge:
 launch:
   extends: .stage2Template
   script:
+    - !reference [.gpu, one]
+    - echo "CUDA_VISIBLE_DEVICES='$CUDA_VISIBLE_DEVICES'"
     - python -m odinllm launch models/neox-expanded/metadata.yaml
   needs:
-    - expand
+    - edit

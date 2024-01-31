@@ -2,6 +2,7 @@ from accelerate import Accelerator
 import click
 import os
 from peft import LoraConfig
+import re
 import torch
 from transformers import EarlyStoppingCallback, TrainerCallback, TrainingArguments
 from trl.trainer import DataCollatorForCompletionOnlyLM
@@ -98,6 +99,7 @@ def _train():
 @click.argument("config", type=click.Path(exists=False), nargs=-1)
 @click.argument("base-model", type=click.Path(exists=True))
 @click.argument("trained-model", type=click.Path(exists=False))
+@click.option("--info", default=None, type=bool)
 @click.option("--peft", default=None, type=bool)
 @click.option("--early-stopping-patience", default=None, type=int)
 @click.option("--instruction-template", default=None, type=str)
@@ -107,6 +109,7 @@ def _train():
 @click.option("--layers", "-t", default=None, type=str)
 @click.option("--experts", "-x", default=None, type=str)
 @click.option("--train-experts", "-a", default=None, type=int)
+@click.option("--freeze", default=None, type=str, multiple=True)
 @args_config
 def train(args, config):
     return __train(args, config)
@@ -120,6 +123,9 @@ def __train(args, config):
     tokenizer = load_tokenizer(args.base_model, config)
     train_dataset, eval_dataset = load_datasets(tokenizer=tokenizer, config=config)
     training_args = get_training_args(output_dir=args.trained_model, eval_dataset=eval_dataset, config=config)
+    if args.info:
+        start("Printing effective training arguments")
+        status(training_args)
     if config.model["device_map"] == "auto" and training_args.local_rank != -1:
         config.model["device_map"] = get_device_map()
     model = load_model(
@@ -148,6 +154,15 @@ def __train(args, config):
                 for name, param in expert.named_parameters():
                     param.requires_grad = False
                     status(name, end='')
+        end()
+    if args.freeze is not None:
+        start("Freezing parameters")
+        for name, param in model.named_parameters():
+            for freeze in args.freeze:
+               if re.search(freeze, name):
+                    param.requires_grad = False
+                    status(f"{freeze} matched {name}", end='')
+                    continue
         end()
     start("Setting up training")
     callbacks = [MetadataSavingCallback(config)]
