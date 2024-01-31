@@ -1,7 +1,7 @@
 import click
 
 from .commands.eval import _eval
-from .commands.expand import _expand
+from .commands.edit import _edit
 from .commands.finalize import _finalize
 from .commands.infer import _infer
 from .commands.init import _init
@@ -13,7 +13,7 @@ from .commands.train import _train
 
 cli = click.CommandCollection(sources=[
     _eval,
-    _expand,
+    _edit,
     _finalize,
     _infer,
     _init,

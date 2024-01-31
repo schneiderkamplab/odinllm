@@ -1,12 +1,15 @@
 import click
+import json
 
 from ..shared import load_tokenizer, load_model, load_lora
-from ..utils import EXAMPLE_PROMPTS, args_config, end, start
+from ..utils import EXAMPLE_PROMPTS, args_config, end, format_text, start
 
 def run_prompt(model, tokenizer, run_prompts, max_new_tokens):
     results = []
     if run_prompts:
         for run_prompt in run_prompts:
+            if isinstance(run_prompt, dict):
+                run_prompt = format_text(run_prompt, tokenizer=tokenizer, append_eos=False)
             start("Testing given prompt", run_prompt)
             res = tokenizer.decode(model.generate(**tokenizer(run_prompt, return_tensors="pt").to(model.device),max_new_tokens=max_new_tokens)[0])
             end()
@@ -27,7 +30,7 @@ def _infer():
 @click.argument("pretrained-model", type=click.Path(exists=True))
 @click.option("--lora-adapter", "-l", default=None, help="Optional LoRA adapter to load with PEFT")
 @click.option("--run-prompt", "-p", default=None, help="Prompt to run instead of example prompts", multiple=True)
-@click.option("--max-new-tokens", "-t", default=None, help="Maximum number of new tokens to generate")
+@click.option("--max-new-tokens", "-t", default=None, help="Maximum number of new tokens to generate", type=int)
 @args_config
 def infer(args, config):
     return __infer(args, config)
