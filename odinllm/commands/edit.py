@@ -14,7 +14,7 @@ def tprint(tokens, decode):
     pass#print([(k, decode[k]) for k in tokens])
 
 def nprint(ngrams, decode):
-    pass#print({f"{decode[a]} {decode[b]}": c for (a, b), c in ngrams.items()})
+    print({f"{decode[a]} {decode[b]}": c for (a, b), c in ngrams.items()})
 
 @click.group()
 def _edit():
@@ -165,7 +165,7 @@ def __edit(args, config):
         status(f"#layers: {len(layers)}", end='')
         end()
     if args.extend_vocab is not None:
-        start(f"Extending vocabulary from {model.config.vocab_size} to {model.config.vocab_size+args.extend_vocab}")
+        start("Loading and tokenizing corpora")
         corpora = []
         for vocab_file in args.vocab_files:
             corpus = []
@@ -186,35 +186,49 @@ def __edit(args, config):
             for sample in samples:
                 tokenized.extend(tokenizer(sample["text"])["input_ids"])
         tprint(tokenized, decode)
+        end()
+        start(f"Extending vocabulary from {model.config.vocab_size} to {model.config.vocab_size+args.extend_vocab}")
+        ngrams = defaultdict(int)
+        for i in range(len(tokenized)-1):
+            ngrams[(tokenized[i], tokenized[i+1])] += 1
+        #nprint(ngrams, decode)
         extra_merges = []
         while len(vocab) < max_vocab_len:
-            status(".", end='')
-            ngrams = defaultdict(int)
-            for i in range(len(tokenized)-1):
-                ngrams[(tokenized[i], tokenized[i+1])] += 1
-            nprint(ngrams, decode)
+            status(f"{next_id}", end='')
             repeated_ngrams = {k: v for k, v in ngrams.items() if v > 1}
             in_word_ngrams = {k: v for k, v in repeated_ngrams.items() if ord(decode[k[1]][0]) != 9601 and decode[k[1]][0].isalpha()}
             test_ngrams = in_word_ngrams if in_word_ngrams else repeated_ngrams
             if not test_ngrams:
                 break
-            best_pair = max(test_ngrams, key=ngrams.get)
-            nprint({best_pair: ngrams[best_pair]}, decode)
+            best_pair = max(test_ngrams, key=test_ngrams.get)
+            nprint({best_pair: test_ngrams[best_pair]}, decode)
+            end(end='')
+            del ngrams[best_pair]
             a, b = decode[best_pair[0]], decode[best_pair[1]]
             extra_merges.append(f"{a} {b}")
             next_token = f"{a}{b}"
             vocab[next_token] = next_id
             decode[next_id] = next_token
+            end(end='')
             i = 0
             # adjust ngrams during the loop to avoid recomputation
-            while i < len(tokenized)-1:
+            len_tokenized = len(tokenized)
+            while i+1 < len_tokenized:
                 a, b  = tokenized[i], tokenized[i+1]
                 if (a, b) == best_pair:
                     tokenized[i] = next_id
-                    del tokenized[i+1]
+                    tokenized[i+1] = -1
+                    if i > 0:
+                        ngrams[(tokenized[i-1], next_id)] += 1
+                    if i+2 < len_tokenized:
+                        ngrams[(next_id, tokenized[i+2])] += 1
+                    i += 1
                 i += 1
+            end(end='')
+            tokenized = [t for t in tokenized if t != -1]
             next_id += 1
             tprint(tokenized, decode)
+            end(end='')
         print({k: vocab[k] for k in list(vocab.keys())[orig_vocab_len:]})
         print(extra_merges)
         tokenizer_json = json.load(open(os.path.join(args.pretrained_model, "tokenizer.json"), "rt"))
@@ -222,8 +236,8 @@ def __edit(args, config):
         tokenizer_json["model"]["merges"].extend(extra_merges)
         os.makedirs(args.edited_model, exist_ok=True)
         json.dump(tokenizer_json, open(os.path.join(args.edited_model, "tokenizer.json"), "wt"), indent=2, ensure_ascii=False)
-        json.dump(json.load(open(os.path.join(args.edited_model, "special_tokens_map.json"), "rt")), open(os.path.join(args.edited_model, "special_tokens_map.json"), "wt"), indent=2, ensure_ascii=False)
-        json.dump(json.load(open(os.path.join(args.edited_model, "tokenizer_config.json"), "rt")), open(os.path.join(args.edited_model, "tokenizer_config.json"), "wt"), indent=2, ensure_ascii=False)
+        json.dump(json.load(open(os.path.join(args.pretrained_model, "special_tokens_map.json"), "rt")), open(os.path.join(args.edited_model, "special_tokens_map.json"), "wt"), indent=2, ensure_ascii=False)
+        json.dump(json.load(open(os.path.join(args.pretrained_model, "tokenizer_config.json"), "rt")), open(os.path.join(args.edited_model, "tokenizer_config.json"), "wt"), indent=2, ensure_ascii=False)
         end()
     else:
         save_model(model, args.edited_model)
