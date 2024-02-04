@@ -1,11 +1,20 @@
 import click
+from collections import defaultdict
 import copy
+import json
+import os
 import torch
-from transformers import MixtralConfig, MixtralForCausalLM
+from transformers import AutoTokenizer, MixtralConfig, MixtralForCausalLM
 from transformers.models.mixtral.modeling_mixtral import MixtralAttention, MixtralDecoderLayer, MixtralRMSNorm, MixtralRotaryEmbedding, MixtralSparseMoeBlock
 
 from ..shared import load_model, load_tokenizer, save_metadata, save_model, save_tokenizer
-from ..utils import args_config, end, start, status, trainable_parameters
+from ..utils import args_config, end, format_text, start, status, trainable_parameters
+
+def tprint(tokens, decode):
+    pass#print([(k, decode[k]) for k in tokens])
+
+def nprint(ngrams, decode):
+    pass#print({f"{decode[a]} {decode[b]}": c for (a, b), c in ngrams.items()})
 
 @click.group()
 def _edit():
@@ -22,11 +31,20 @@ def _edit():
 @click.option("--gate", default=None, type=str)
 @click.option("--experts", default=None, type=str)
 @click.option("--adjust-layers", default=None, type=int)
+@click.option("--extend-vocab", default=None, type=int)
+@click.option("--vocab-files", default=None, type=click.Path(exists=True), multiple=True)
+
 @args_config
 def edit(args, config):
     return __edit(args, config)
 
 def __edit(args, config):
+    if args.add_every is None and args.add_experts is None and args.adjust_layers is None and args.extend_vocab is None:
+        raise ValueError("either --add-every, --adjust-layers, or --add-experts needs to be specified")
+    tokenizer = load_tokenizer(
+        args.pretrained_model,
+        config=config,
+    )
     model = load_model(
         args.pretrained_model,
         config=config,
@@ -35,8 +53,6 @@ def __edit(args, config):
         start("Printing model information")
         status(model)
     layers = model.get_submodule(args.layers)
-    if args.add_every is None and args.add_experts is None and args.adjust_layers is None:
-        raise ValueError("either --add-every, --adjust-layers, or --add-experts needs to be specified")
     if args.add_every is not None:
         start(f"Expanding model from {len(layers)} layers")
         inserts = reversed(range(args.add_every-1, len(layers), args.add_every))
@@ -148,8 +164,70 @@ def __edit(args, config):
                     status(f"WARNING could not find {args.layers}.{len(layers)-1}.{zero}")
         status(f"#layers: {len(layers)}", end='')
         end()
-    save_model(model, args.edited_model)
-    tokenizer = load_tokenizer(args.pretrained_model, config)
-    save_tokenizer(tokenizer, args.edited_model)
+    if args.extend_vocab is not None:
+        start(f"Extending vocabulary from {model.config.vocab_size} to {model.config.vocab_size+args.extend_vocab}")
+        corpora = []
+        for vocab_file in args.vocab_files:
+            corpus = []
+            with open(vocab_file, "rt") as f:
+                for line in f:
+                    corpus.append({"text": format_text(json.loads(line), tokenizer=tokenizer)})
+            corpora.append(corpus)
+        tokenizer = AutoTokenizer.from_pretrained(args.pretrained_model)
+        vocab = tokenizer.get_vocab()
+        vocab = dict(sorted(vocab.items(), key=lambda x: x[1]))
+        orig_vocab_len = len(vocab)
+        orig_max_id = max(vocab.values())
+        max_vocab_len = orig_vocab_len+args.extend_vocab
+        decode = {v: k for k, v in vocab.items()}
+        next_id = orig_max_id + 1
+        tokenized = []
+        for samples in corpora:
+            for sample in samples:
+                tokenized.extend(tokenizer(sample["text"])["input_ids"])
+        tprint(tokenized, decode)
+        extra_merges = []
+        while len(vocab) < max_vocab_len:
+            status(".", end='')
+            ngrams = defaultdict(int)
+            for i in range(len(tokenized)-1):
+                ngrams[(tokenized[i], tokenized[i+1])] += 1
+            nprint(ngrams, decode)
+            repeated_ngrams = {k: v for k, v in ngrams.items() if v > 1}
+            in_word_ngrams = {k: v for k, v in repeated_ngrams.items() if ord(decode[k[1]][0]) != 9601 and decode[k[1]][0].isalpha()}
+            test_ngrams = in_word_ngrams if in_word_ngrams else repeated_ngrams
+            if not test_ngrams:
+                break
+            best_pair = max(test_ngrams, key=ngrams.get)
+            nprint({best_pair: ngrams[best_pair]}, decode)
+            a, b = decode[best_pair[0]], decode[best_pair[1]]
+            extra_merges.append(f"{a} {b}")
+            next_token = f"{a}{b}"
+            vocab[next_token] = next_id
+            decode[next_id] = next_token
+            i = 0
+            # adjust ngrams during the loop to avoid recomputation
+            while i < len(tokenized)-1:
+                a, b  = tokenized[i], tokenized[i+1]
+                if (a, b) == best_pair:
+                    tokenized[i] = next_id
+                    del tokenized[i+1]
+                i += 1
+            next_id += 1
+            tprint(tokenized, decode)
+        print({k: vocab[k] for k in list(vocab.keys())[orig_vocab_len:]})
+        print(extra_merges)
+        tokenizer_json = json.load(open(os.path.join(args.pretrained_model, "tokenizer.json"), "rt"))
+        tokenizer_json["model"]["vocab"] = vocab
+        tokenizer_json["model"]["merges"].extend(extra_merges)
+        os.makedirs(args.edited_model, exist_ok=True)
+        json.dump(tokenizer_json, open(os.path.join(args.edited_model, "tokenizer.json"), "wt"), indent=2, ensure_ascii=False)
+        json.dump(json.load(open(os.path.join(args.edited_model, "special_tokens_map.json"), "rt")), open(os.path.join(args.edited_model, "special_tokens_map.json"), "wt"), indent=2, ensure_ascii=False)
+        json.dump(json.load(open(os.path.join(args.edited_model, "tokenizer_config.json"), "rt")), open(os.path.join(args.edited_model, "tokenizer_config.json"), "wt"), indent=2, ensure_ascii=False)
+        end()
+    else:
+        save_model(model, args.edited_model)
+        tokenizer = load_tokenizer(args.pretrained_model, config)
+        save_tokenizer(tokenizer, args.edited_model)
     save_metadata(model.metadata, config, args.edited_model)
     
