@@ -34,7 +34,8 @@ def _edit():
 @click.option("--adjust-layers", default=None, type=int)
 @click.option("--extend-vocab", default=None, type=int)
 @click.option("--vocab-files", default=None, type=click.Path(exists=True), multiple=True)
-
+@click.option("--min-in-word-bigrams", default=None, type=int)
+@click.option("--min-bigrams", default=None, type=int)
 @args_config
 def edit(args, config):
     return __edit(args, config)
@@ -207,12 +208,14 @@ def __edit(args, config):
                 num2ngrams[num-1].remove(ngram)
             token2indices[tokenized[i]].append(i)
         #nprint(ngrams, decode)
+        min_in_word_bigrams = 1 if args.min_in_word_bigrams is None else args.min_in_word_bigrams if args.min_in_word_bigrams else max_in_word_ngram+1
+        min_bigrams = 1 if args.min_bigrams is None else args.min_bigrams if args.min_bigrams else max_ngram+1
         extra_merges = []
         pbar = tqdm(total=args.extend_vocab, desc="Extending vocabulary")
         while len(vocab) < max_vocab_len:
             #status(f"{next_id}", end='')
             best_pair = None
-            for num in range(max_in_word_ngram,1,-1):
+            for num in range(max_in_word_ngram, min_in_word_bigrams-1, -1):
                 for ngram in num2ngrams[num]:
                     if decode[ngram[1]][0].isalpha():
                         best_pair = ngram
@@ -223,7 +226,7 @@ def __edit(args, config):
                 break
             #end(end='')
             if best_pair is None:
-                for num in range(max_ngram,1,-1):
+                for num in range(max_ngram, min_bigrams-1, -1):
                     for ngram in num2ngrams[num]:
                         best_pair = ngram
                         max_ngram = num
