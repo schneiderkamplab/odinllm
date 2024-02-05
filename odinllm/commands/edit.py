@@ -191,28 +191,61 @@ def __edit(args, config):
         start(f"Extending vocabulary from {model.config.vocab_size} to {model.config.vocab_size+args.extend_vocab}")
         ngrams = defaultdict(int)
         token2indices = defaultdict(list)
-        for i in range(len(tokenized)-1):
-            ngrams[(tokenized[i], tokenized[i+1])] += 1
+        num2ngrams = defaultdict(set)
+        max_ngram = 0
+        max_in_word_ngram = 0
+        for i in tqdm(range(len(tokenized)-1), desc="Creating ngram statistics"):
+            ngram = (tokenized[i], tokenized[i+1])
+            num = ngrams[ngram]+1
+            ngrams[ngram] = num
+            num2ngrams[num].add(ngram)
+            if num > max_ngram:
+                max_ngram = num
+            if num > max_in_word_ngram and decode[ngram[1]][0].isalpha():
+                max_in_word_ngram = num
+            if num-1:
+                num2ngrams[num-1].remove(ngram)
             token2indices[tokenized[i]].append(i)
         #nprint(ngrams, decode)
         extra_merges = []
+        pbar = tqdm(total=args.extend_vocab, desc="Extending vocabulary")
         while len(vocab) < max_vocab_len:
-            status(f"{next_id}", end='')
-            in_word_ngrams = {k: v for k, v in ngrams.items() if v > 1 and decode[k[1]][0].isalpha()}
-            test_ngrams = in_word_ngrams if in_word_ngrams else {k: v for k, v in ngrams.items() if v > 1}
-            if not test_ngrams:
+            #status(f"{next_id}", end='')
+            best_pair = None
+            for num in range(max_in_word_ngram,1,-1):
+                for ngram in num2ngrams[num]:
+                    if decode[ngram[1]][0].isalpha():
+                        best_pair = ngram
+                        max_in_word_ngram = num
+                        break
+                else:
+                    continue
                 break
-            end(end='')
-            best_pair = max(test_ngrams, key=test_ngrams.get)
-            nprint({best_pair: test_ngrams[best_pair]}, decode)
-            end(end='')
+            #end(end='')
+            if best_pair is None:
+                for num in range(max_ngram,1,-1):
+                    for ngram in num2ngrams[num]:
+                        best_pair = ngram
+                        max_ngram = num
+                        break
+                    else:
+                        continue
+                    break
+            if best_pair is None:
+                break
+            #end(end='')
+            #status(f"{num} out of {max_in_word_ngram} out of {max_ngram}", end='')
+            #nprint({best_pair: ngrams[best_pair]}, decode)
+            #end(end='')
+            num = ngrams[best_pair]
             del ngrams[best_pair]
+            num2ngrams[num].remove(best_pair)
             a, b = decode[best_pair[0]], decode[best_pair[1]]
             extra_merges.append(f"{a} {b}")
             next_token = f"{a}{b}"
             vocab[next_token] = next_id
             decode[next_id] = next_token
-            end(end='')
+            #end(end='')
             len_tokenized = len(tokenized)
             for i in token2indices[a].copy():
                 _a = tokenized[i]
@@ -236,23 +269,34 @@ def __edit(args, config):
                 _i = i-1
                 while _i >= 0:
                     if tokenized[_i] != -1:
-                        ngrams[(tokenized[_i], next_id)] += 1
+                        ngram = (tokenized[_i], next_id)
+                        num = ngrams[ngram]+1
+                        ngrams[ngram] = num
+                        num2ngrams[num].add(ngram)
+                        if num-1:
+                            num2ngrams[num-1].remove(ngram)
                         break
                     _i -= 1
                 _j = j+1
                 while _j < len_tokenized:
                     if tokenized[_j] != -1:
-                        ngrams[(next_id, tokenized[_j])] += 1
+                        ngram = (next_id, tokenized[_j])
+                        num = ngrams[ngram]+1
+                        ngrams[ngram] = num
+                        num2ngrams[num].add(ngram)
+                        if num-1:
+                            num2ngrams[num-1].remove(ngram)
                         break
                     _j += 1
-            end(end='')
-            if not next_id % 1000:
+            #end(end='')
+            if not next_id % 10000:
                 tokenized = [t for t in tokenized if t != -1]
             next_id += 1
-            tprint(tokenized, decode)
-            end(end='')
-        print({k: vocab[k] for k in list(vocab.keys())[orig_vocab_len:]})
-        print(extra_merges)
+            #tprint(tokenized, decode)
+            #end(end='')
+            pbar.update(1)
+        #print({k: vocab[k] for k in list(vocab.keys())[orig_vocab_len:]})
+        #print(extra_merges)
         tokenizer_json = json.load(open(os.path.join(args.pretrained_model, "tokenizer.json"), "rt"))
         tokenizer_json["model"]["vocab"] = vocab
         tokenizer_json["model"]["merges"].extend(extra_merges)
@@ -260,6 +304,7 @@ def __edit(args, config):
         json.dump(tokenizer_json, open(os.path.join(args.edited_model, "tokenizer.json"), "wt"), indent=2, ensure_ascii=False)
         json.dump(json.load(open(os.path.join(args.pretrained_model, "special_tokens_map.json"), "rt")), open(os.path.join(args.edited_model, "special_tokens_map.json"), "wt"), indent=2, ensure_ascii=False)
         json.dump(json.load(open(os.path.join(args.pretrained_model, "tokenizer_config.json"), "rt")), open(os.path.join(args.edited_model, "tokenizer_config.json"), "wt"), indent=2, ensure_ascii=False)
+        status(f"#extended: {len(vocab)-orig_vocab_len}", end='')
         end()
     else:
         save_model(model, args.edited_model)
