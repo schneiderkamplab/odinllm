@@ -4,6 +4,7 @@ import copy
 import json
 import os
 import torch
+from tqdm import tqdm
 from transformers import AutoTokenizer, MixtralConfig, MixtralForCausalLM
 from transformers.models.mixtral.modeling_mixtral import MixtralAttention, MixtralDecoderLayer, MixtralRMSNorm, MixtralRotaryEmbedding, MixtralSparseMoeBlock
 
@@ -182,24 +183,26 @@ def __edit(args, config):
         decode = {v: k for k, v in vocab.items()}
         next_id = orig_max_id + 1
         tokenized = []
-        for samples in corpora:
-            for sample in samples:
+        for samples in tqdm(corpora, desc="Tokenizing corpora"):
+            for sample in tqdm(samples, desc="Tokenizing samples"):
                 tokenized.extend(tokenizer(sample["text"])["input_ids"])
         tprint(tokenized, decode)
         end()
         start(f"Extending vocabulary from {model.config.vocab_size} to {model.config.vocab_size+args.extend_vocab}")
         ngrams = defaultdict(int)
+        token2indices = defaultdict(list)
         for i in range(len(tokenized)-1):
             ngrams[(tokenized[i], tokenized[i+1])] += 1
+            token2indices[tokenized[i]].append(i)
         #nprint(ngrams, decode)
         extra_merges = []
         while len(vocab) < max_vocab_len:
             status(f"{next_id}", end='')
-            repeated_ngrams = {k: v for k, v in ngrams.items() if v > 1}
-            in_word_ngrams = {k: v for k, v in repeated_ngrams.items() if ord(decode[k[1]][0]) != 9601 and decode[k[1]][0].isalpha()}
-            test_ngrams = in_word_ngrams if in_word_ngrams else repeated_ngrams
+            in_word_ngrams = {k: v for k, v in ngrams.items() if v > 1 and decode[k[1]][0].isalpha()}
+            test_ngrams = in_word_ngrams if in_word_ngrams else {k: v for k, v in ngrams.items() if v > 1}
             if not test_ngrams:
                 break
+            end(end='')
             best_pair = max(test_ngrams, key=test_ngrams.get)
             nprint({best_pair: test_ngrams[best_pair]}, decode)
             end(end='')
@@ -210,22 +213,41 @@ def __edit(args, config):
             vocab[next_token] = next_id
             decode[next_id] = next_token
             end(end='')
-            i = 0
-            # adjust ngrams during the loop to avoid recomputation
             len_tokenized = len(tokenized)
-            while i+1 < len_tokenized:
-                a, b  = tokenized[i], tokenized[i+1]
-                if (a, b) == best_pair:
-                    tokenized[i] = next_id
-                    tokenized[i+1] = -1
-                    if i > 0:
-                        ngrams[(tokenized[i-1], next_id)] += 1
-                    if i+2 < len_tokenized:
-                        ngrams[(next_id, tokenized[i+2])] += 1
-                    i += 1
-                i += 1
+            for i in token2indices[a].copy():
+                _a = tokenized[i]
+                if _a == -1:
+                    continue
+                assert _a == a
+                _b = -1
+                j = i+1
+                while j < len_tokenized:
+                    _b = tokenized[j]
+                    if _b != -1:
+                        break
+                    j += 1
+                if _b != b:
+                    continue
+                tokenized[i] = next_id
+                tokenized[j] = -1
+                token2indices[a].remove(i)
+                token2indices[b].remove(j)
+                token2indices[next_id].append(i)
+                _i = i-1
+                while _i >= 0:
+                    if tokenized[_i] != -1:
+                        ngrams[(tokenized[_i], next_id)] += 1
+                        break
+                    _i -= 1
+                _j = j+1
+                while _j < len_tokenized:
+                    if tokenized[_j] != -1:
+                        ngrams[(next_id, tokenized[_j])] += 1
+                        break
+                    _j += 1
             end(end='')
-            tokenized = [t for t in tokenized if t != -1]
+            if not next_id % 1000:
+                tokenized = [t for t in tokenized if t != -1]
             next_id += 1
             tprint(tokenized, decode)
             end(end='')
