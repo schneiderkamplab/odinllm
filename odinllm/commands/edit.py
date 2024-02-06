@@ -76,6 +76,7 @@ def _edit():
 @click.option("--vocab-files", default=None, type=click.Path(exists=True), multiple=True)
 @click.option("--min-in-word-bigrams", default=None, type=int)
 @click.option("--min-bigrams", default=None, type=int)
+@click.option("--batch-size", default=None, type=int)
 @args_config
 def edit(args, config):
     return __edit(args, config)
@@ -207,13 +208,12 @@ def __edit(args, config):
         status(f"#layers: {len(layers)}", end='')
         end()
     if args.extend_vocab is not None:
-        start("Loading and tokenizing corpora")
         corpora = []
-        for vocab_file in args.vocab_files:
+        for vocab_file in tqdm(args.vocab_files, desc="Loading corpora"):
             corpus = []
             with open(vocab_file, "rt") as f:
                 for line in f:
-                    corpus.append({"text": format_text(json.loads(line), tokenizer=tokenizer)})
+                    corpus.append(format_text(json.loads(line), tokenizer=tokenizer))
             corpora.append(corpus)
         tokenizer = AutoTokenizer.from_pretrained(args.pretrained_model)
         vocab = tokenizer.get_vocab()
@@ -224,11 +224,15 @@ def __edit(args, config):
         decode = {v: k for k, v in vocab.items()}
         next_id = orig_max_id + 1
         tokenized = []
-        for samples in tqdm(corpora, desc="Tokenizing corpora"):
-            for sample in tqdm(samples, desc="Tokenizing samples"):
-                tokenized.extend(tokenizer(sample["text"])["input_ids"])
+        batch_size = 100000 if args.batch_size is None else args.batch_size
+        for i, samples in enumerate(tqdm(corpora, desc="Tokenizing corpora")):
+            pbar = tqdm(total=(len(samples)+batch_size-1)//batch_size, desc=f"Tokenizing corpus in batches of {batch_size}", disable=False)
+            while samples:
+                batch, samples, corpora[i] = samples[:batch_size], samples[batch_size:], corpora[i][batch_size:]
+                for tokenized_sample in tokenizer(batch, batch)["input_ids"]:
+                    tokenized.extend(tokenized_sample)
+                pbar.update(1)
         #tprint(tokenized, decode)
-        end()
         start(f"Extending vocabulary from {model.config.vocab_size} to {model.config.vocab_size+args.extend_vocab}")
         tokenizer_json = json.load(open(os.path.join(args.pretrained_model, "tokenizer.json"), "rt"))
         special_tokens = {t["id"]: t["content"] for t in tokenizer_json["added_tokens"]}
@@ -249,8 +253,8 @@ def __edit(args, config):
                     max_in_word_ngram = num
             token2indices[tokenized[i]][i] = None
         #nprint(ngrams, decode)
-        min_in_word_bigrams = 1 if args.min_in_word_bigrams is None else args.min_in_word_bigrams if args.min_in_word_bigrams >= 0 else max_in_word_ngram+1
-        min_bigrams = 1 if args.min_bigrams is None else args.min_bigrams if args.min_bigrams >= 0 else max_ngram+1
+        min_in_word_bigrams = 0 if args.min_in_word_bigrams is None else args.min_in_word_bigrams if args.min_in_word_bigrams >= 0 else max_in_word_ngram+1
+        min_bigrams = 0 if args.min_bigrams is None else args.min_bigrams if args.min_bigrams >= 0 else max_ngram+1
         extra_merges = []
         pbar = tqdm(total=args.extend_vocab, desc="Extending vocabulary", disable=False)
         while len(vocab) < max_vocab_len:
