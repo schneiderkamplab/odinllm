@@ -27,7 +27,7 @@ from ..utils import args_config, end, format_text, start, status, trainable_para
 #        for n in ns:
 #            assert ngrams[n] == num
 
-def add_ngram(ngrams, num2ngrams, a, b, decode):
+def add_ngram(ngrams, num2ngrams, a, b):
     #print(f"Adding {decode[a]} {decode[b]}")
     #check_ngrams(ngrams, num2ngrams)
     ngram = (a, b)
@@ -41,7 +41,7 @@ def add_ngram(ngrams, num2ngrams, a, b, decode):
     #check_ngrams(ngrams, num2ngrams)
     return num, ngram
 
-def del_ngram(ngrams, num2ngrams, a, b, decode):
+def del_ngram(ngrams, num2ngrams, a, b):
     #print(f"Deleting {decode[a]} {decode[b]}")
     #check_ngrams(ngrams, num2ngrams)
     ngram = (a, b)
