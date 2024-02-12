@@ -110,5 +110,7 @@ edit:
   add_experts: null
   gate: block_sparse_moe.gate
   experts: block_sparse_moe.experts
+  embeddings: model.embed_tokens
+  lm_head: lm_head
 snapshot:
   file_name: []

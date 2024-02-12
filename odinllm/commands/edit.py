@@ -11,39 +11,16 @@ from transformers.models.mixtral.modeling_mixtral import MixtralAttention, Mixtr
 from ..shared import load_model, load_tokenizer, save_metadata, save_model, save_tokenizer
 from ..utils import args_config, end, format_text, start, status, trainable_parameters
 
-#def tprint(tokens, decode):
-#    print([(decode[k] if k >= 0 else '<DEL>') for k in tokens])
-
-#def nprint(ngrams, decode):
-#    print({f"{decode[a]} {decode[b]}": c for (a, b), c in ngrams.items()})
-
-#def cprint(num2ngrams, decode):
-#    print({k: [f"{decode[a]} {decode[b]}" for a, b in v] for k, v in num2ngrams.items()})
-
-#def check_ngrams(ngrams, num2ngrams):
-#    for ngram, num in ngrams.items():
-#        assert ngram in num2ngrams[num]
-#    for num, ns in num2ngrams.items():
-#        for n in ns:
-#            assert ngrams[n] == num
-
 def add_ngram(ngrams, num2ngrams, a, b):
-    #print(f"Adding {decode[a]} {decode[b]}")
-    #check_ngrams(ngrams, num2ngrams)
     ngram = (a, b)
     num = ngrams[ngram]+1
     ngrams[ngram] = num
     num2ngrams[num][ngram] = None
     if num-1:
         del num2ngrams[num-1][ngram]
-    #nprint(ngrams, decode)
-    #cprint(num2ngrams, decode)
-    #check_ngrams(ngrams, num2ngrams)
-    return num, ngram
+    return num
 
 def del_ngram(ngrams, num2ngrams, a, b):
-    #print(f"Deleting {decode[a]} {decode[b]}")
-    #check_ngrams(ngrams, num2ngrams)
     ngram = (a, b)
     num = ngrams[ngram]-1
     if num:
@@ -52,10 +29,7 @@ def del_ngram(ngrams, num2ngrams, a, b):
     else:
         del ngrams[ngram]
     del num2ngrams[num+1][ngram]
-    #nprint(ngrams, decode)
-    #cprint(num2ngrams, decode)
-    #check_ngrams(ngrams, num2ngrams)
-    return num, ngram
+    return num
 
 @click.group()
 def _edit():
@@ -77,6 +51,8 @@ def _edit():
 @click.option("--min-in-word-bigrams", default=None, type=int)
 @click.option("--min-bigrams", default=None, type=int)
 @click.option("--batch-size", default=None, type=int)
+@click.option("--embeddings", default=None, type=str)
+@click.option("--lm-head", default=None, type=str)
 @args_config
 def edit(args, config):
     return __edit(args, config)
@@ -232,6 +208,7 @@ def __edit(args, config):
                 for tokenized_sample in tokenizer(batch, batch)["input_ids"]:
                     tokenized.extend(tokenized_sample)
                 pbar.update(1)
+        pbar.close()
         #tprint(tokenized, decode)
         start(f"Extending vocabulary from {model.config.vocab_size} to {model.config.vocab_size+args.extend_vocab}")
         tokenizer_json = json.load(open(os.path.join(args.pretrained_model, "tokenizer.json"), "rt"))
@@ -246,19 +223,17 @@ def __edit(args, config):
             if tokenized[i] in special_tokens:
                 continue
             if i+1 < len_tokenized and not tokenized[i+1] in special_tokens:
-                num, ngram = add_ngram(ngrams, num2ngrams, tokenized[i], tokenized[i+1])
+                num = add_ngram(ngrams, num2ngrams, tokenized[i], tokenized[i+1])
                 if num > max_ngram:
                     max_ngram = num
-                if num > max_in_word_ngram and decode[ngram[1]][0].isalpha():
+                if num > max_in_word_ngram and decode[tokenized[i+1]][0].isalpha():
                     max_in_word_ngram = num
             token2indices[tokenized[i]][i] = None
-        #nprint(ngrams, decode)
         min_in_word_bigrams = 0 if args.min_in_word_bigrams is None else args.min_in_word_bigrams if args.min_in_word_bigrams >= 0 else max_in_word_ngram+1
         min_bigrams = 0 if args.min_bigrams is None else args.min_bigrams if args.min_bigrams >= 0 else max_ngram+1
         extra_merges = []
         pbar = tqdm(total=args.extend_vocab, desc="Extending vocabulary", disable=False)
         while len(vocab) < max_vocab_len:
-            #status(f"{next_id}", end='')
             best_pair = None
             for num in range(max_in_word_ngram, min_in_word_bigrams-1, -1):
                 for ngram in num2ngrams[num]:
@@ -269,7 +244,6 @@ def __edit(args, config):
                 else:
                     continue
                 break
-            #end(end='')
             if best_pair is None:
                 for num in range(max_ngram, min_bigrams-1, -1):
                     for ngram in num2ngrams[num]:
@@ -281,26 +255,15 @@ def __edit(args, config):
                     break
             if best_pair is None:
                 break
-            #end(end='')
-            #status(f"{num} out of {max_in_word_ngram} out of {max_ngram}", end='')
-            #nprint({best_pair: ngrams[best_pair]}, decode)
-            #nprint(ngrams, decode)
-            #cprint(num2ngrams, decode)
-            #tprint(tokenized, decode)
-            #end(end='')
             num = ngrams[best_pair]
-            del ngrams[best_pair]
-            del num2ngrams[num][best_pair]
             a, b = decode[best_pair[0]], decode[best_pair[1]]
             extra_merges.append(f"{a} {b}")
             next_token = f"{a}{b}"
             vocab[next_token] = next_id
             decode[next_id] = next_token
-            #end(end='')
             len_tokenized = len(tokenized)
             a, b = best_pair
             for i in list(token2indices[a].keys()):
-                #print(token2indices)
                 _a = tokenized[i]
                 if _a == -1:
                     continue
@@ -314,9 +277,9 @@ def __edit(args, config):
                     j += 1
                 if _b != b:
                     continue
-                #print(i,j)
                 tokenized[i] = next_id
                 tokenized[j] = -1
+                del_ngram(ngrams, num2ngrams, a, b)
                 del token2indices[a][i]
                 del token2indices[b][j]
                 token2indices[next_id][i] = None
@@ -338,9 +301,10 @@ def __edit(args, config):
                         del_ngram(ngrams, num2ngrams, b, tokenized[_j])
                         break
                     _j += 1
-            #end(end='')
+            assert(not ngrams[best_pair])
+            assert(best_pair not in num2ngrams[num])
             next_id += 1
-            if False or not next_id % 1000:
+            if False and not next_id % 1000:
                 tokenized = [t for t in tqdm(tokenized, desc="Compacting tokenized corpus") if t != -1]
                 token2indices = defaultdict(dict)
                 for i, t in enumerate(tqdm(tokenized, desc="Rebuilding token indices")):
@@ -349,8 +313,9 @@ def __edit(args, config):
             #tprint(tokenized, decode)
             #end(end='')
             pbar.update(1)
-        #print({k: vocab[k] for k in list(vocab.keys())[orig_vocab_len:]})
-        #print(extra_merges)
+        pbar.close()
+        end()
+        start("Saving extended tokenizer")
         tokenizer_json["model"]["vocab"] = vocab
         tokenizer_json["model"]["merges"].extend(extra_merges)
         os.makedirs(args.edited_model, exist_ok=True)
@@ -359,9 +324,17 @@ def __edit(args, config):
         json.dump(json.load(open(os.path.join(args.pretrained_model, "tokenizer_config.json"), "rt")), open(os.path.join(args.edited_model, "tokenizer_config.json"), "wt"), indent=2, ensure_ascii=False)
         status(f"#extended: {len(vocab)-orig_vocab_len}", end='')
         end()
-    else:
-        save_model(model, args.edited_model)
-        tokenizer = load_tokenizer(args.pretrained_model, config)
-        save_tokenizer(tokenizer, args.edited_model)
+        tokenizer = load_tokenizer(args.edited_model, config)
+        start("Adjusting model vocab, embeddings, and lm head")
+        model.config.vocab_size = len(vocab)
+        embeddings = model.get_submodule(args.embeddings)
+        average_embeddings = embeddings.weight.data.mean(dim=0).repeat(len(vocab)-orig_vocab_len, 1)
+        embeddings.weight = torch.nn.parameter.Parameter(torch.cat((embeddings.weight.data, average_embeddings), 0))
+        lm_head = model.get_submodule(args.lm_head)
+        average_lm_head = lm_head.weight.data.mean(dim=0).repeat(len(vocab)-orig_vocab_len, 1)
+        lm_head.weight = torch.nn.parameter.Parameter(torch.cat((lm_head.weight.data, average_lm_head), 0))
+        end()
+    save_model(model, args.edited_model)
+    save_tokenizer(tokenizer, args.edited_model)
     save_metadata(model.metadata, config, args.edited_model)
     
