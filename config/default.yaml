@@ -112,5 +112,6 @@ edit:
   experts: block_sparse_moe.experts
   embeddings: model.embed_tokens
   lm_head: lm_head
+  combine_embeddings: average
 snapshot:
   file_name: []

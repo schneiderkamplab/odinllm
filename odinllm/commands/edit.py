@@ -53,6 +53,7 @@ def _edit():
 @click.option("--batch-size", default=None, type=int)
 @click.option("--embeddings", default=None, type=str)
 @click.option("--lm-head", default=None, type=str)
+@click.option("--combine-embeddings", default=None, type=str)
 @args_config
 def edit(args, config):
     return __edit(args, config)
@@ -60,6 +61,8 @@ def edit(args, config):
 def __edit(args, config):
     if args.add_every is None and args.add_experts is None and args.adjust_layers is None and args.extend_vocab is None:
         raise ValueError("either --add-every, --adjust-layers, or --add-experts needs to be specified")
+    if args.extend_vocab is not None and args.combine_embeddings not in ("average", "combine"):
+            raise ValueError(f"unknown value for combine_embeddings: {args.combine_embeddings} (options: 'average', 'combine')")
     tokenizer = load_tokenizer(
         args.pretrained_model,
         config=config,
@@ -232,6 +235,11 @@ def __edit(args, config):
         min_in_word_bigrams = 0 if args.min_in_word_bigrams is None else args.min_in_word_bigrams if args.min_in_word_bigrams >= 0 else max_in_word_ngram+1
         min_bigrams = 0 if args.min_bigrams is None else args.min_bigrams if args.min_bigrams >= 0 else max_ngram+1
         extra_merges = []
+        embeddings = model.get_submodule(args.embeddings)
+        lm_head = model.get_submodule(args.lm_head)
+        if args.combine_embeddings == "average":
+            average_embedding = embeddings.weight.data.mean(dim=0)
+            average_lm_head = lm_head.weight.data.mean(dim=0)
         pbar = tqdm(total=args.extend_vocab, desc="Extending vocabulary", disable=False)
         while len(vocab) < max_vocab_len:
             best_pair = None
@@ -257,7 +265,23 @@ def __edit(args, config):
                 break
             num = ngrams[best_pair]
             a, b = decode[best_pair[0]], decode[best_pair[1]]
+            if args.combine_embeddings == "average":
+                new_embedding = average_embedding
+                new_lm_head = average_lm_head
+            elif args.combine_embeddings == "combine":
+                new_embedding = (
+                    embeddings.weight.data[best_pair[0]]*len(a)+
+                    embeddings.weight.data[best_pair[1]]*len(b)
+                    ) / (len(a)+len(b))
+                new_lm_head = (
+                    lm_head.weight.data[best_pair[0]]*len(a)+
+                    lm_head.weight.data[best_pair[1]]*len(b)
+                    ) / (len(a)+len(b))
+            else:
+                assert(False)
             extra_merges.append(f"{a} {b}")
+            embeddings.weight.data = torch.nn.parameter.Parameter(torch.cat((embeddings.weight.data, new_embedding.unsqueeze(0)), 0))
+            lm_head.weight.data = torch.nn.parameter.Parameter(torch.cat((lm_head.weight.data, new_lm_head.unsqueeze(0)), 0))
             next_token = f"{a}{b}"
             vocab[next_token] = next_id
             decode[next_id] = next_token
@@ -310,8 +334,6 @@ def __edit(args, config):
                 for i, t in enumerate(tqdm(tokenized, desc="Rebuilding token indices")):
                     if not t in special_tokens:
                         token2indices[t][i] = None
-            #tprint(tokenized, decode)
-            #end(end='')
             pbar.update(1)
         pbar.close()
         end()
@@ -325,15 +347,7 @@ def __edit(args, config):
         status(f"#extended: {len(vocab)-orig_vocab_len}", end='')
         end()
         tokenizer = load_tokenizer(args.edited_model, config)
-        start("Adjusting model vocab, embeddings, and lm head")
         model.config.vocab_size = len(vocab)
-        embeddings = model.get_submodule(args.embeddings)
-        average_embeddings = embeddings.weight.data.mean(dim=0).repeat(len(vocab)-orig_vocab_len, 1)
-        embeddings.weight = torch.nn.parameter.Parameter(torch.cat((embeddings.weight.data, average_embeddings), 0))
-        lm_head = model.get_submodule(args.lm_head)
-        average_lm_head = lm_head.weight.data.mean(dim=0).repeat(len(vocab)-orig_vocab_len, 1)
-        lm_head.weight = torch.nn.parameter.Parameter(torch.cat((lm_head.weight.data, average_lm_head), 0))
-        end()
     save_model(model, args.edited_model)
     save_tokenizer(tokenizer, args.edited_model)
     save_metadata(model.metadata, config, args.edited_model)
