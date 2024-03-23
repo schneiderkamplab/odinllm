@@ -1,4 +1,5 @@
 from accelerate import Accelerator
+from bitlinear_pytorch import BitLinear, replace_linear_with_bitlinear
 import click
 import os
 from peft import LoraConfig
@@ -110,6 +111,7 @@ def _train():
 @click.option("--experts", "-x", default=None, type=str)
 @click.option("--train-experts", "-a", default=None, type=int)
 @click.option("--freeze", default=None, type=str, multiple=True)
+@click.option("--bitlinear", default=None, type=bool)
 @args_config
 def train(args, config):
     return __train(args, config)
@@ -163,6 +165,11 @@ def __train(args, config):
                     param.requires_grad = False
                     status(f"{freeze} matched {name}", end='')
                     continue
+        end()
+    if args.bitlinear is not None:
+        start("Replacing nn.Linear with BitLinear")
+        replace_linear_with_bitlinear(model)
+        print(model)
         end()
     start("Setting up training")
     callbacks = [MetadataSavingCallback(config)]
