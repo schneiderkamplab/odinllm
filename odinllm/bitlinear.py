@@ -98,4 +98,4 @@ def replace_layer(model, old_class, new_class, **new_class_kwargs):
             setattr(model, name, new_class(**kwargs))
             print(f"replaced layer {name} of class {old_class} with {new_class}")
         else:
-            replace_layer(module, old_class, new_class, **kwargs)
+            replace_layer(module, old_class, new_class, **new_class_kwargs)
