@@ -7,7 +7,7 @@ import torch
 from transformers import EarlyStoppingCallback, TrainerCallback, TrainingArguments
 from trl.trainer import DataCollatorForCompletionOnlyLM
 
-from ..bitlinear import BitLinear, replace_linear
+from ..bitlinear import BitLinear, replace_layer
 from ..shared import load_datasets, load_model, load_tokenizer, save_metadata
 from ..trainer import OdinTrainer
 from ..utils import (
@@ -168,7 +168,7 @@ def __train(args, config):
         end()
     if args.bitlinear is not None:
         start("Replacing nn.Linear with BitLinear")
-        replace_linear(model, torch.nn.Linear, BitLinear, activation_bits=8, allow_zero=True)
+        replace_layer(model, torch.nn.Linear, BitLinear, activation_bits=8, allow_zero=True)
         print(model)
         end()
     start("Setting up training")
