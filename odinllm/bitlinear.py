@@ -36,12 +36,12 @@ class AbsMaxQuantize(torch.autograd.Function):
         gamma = input.abs().max()
         quantized = torch.round(
             torch.clamp(
-                input*Q_b/(gamma+eps),
+                input*Q_b/gamma,
                 -Q_b+eps,
                 Q_b-eps,
             ),
         )
-        return quantized
+        return quantized, gamma
 
     @staticmethod
     def backward(ctx, grad_output):
@@ -81,12 +81,12 @@ class BitLinear(nn.Linear):
         self.allow_zero = allow_zero
 
     def forward(self, input):
-        normalized = torch.layer_norm(input, input.size()[1:])
-        binarized = Binarize.apply(self.weight)
-        output = F.linear(normalized, binarized, self.bias)
-        output = AbsMaxQuantize.apply(output)
-        output = output*output.abs().max()*self.weight.mean()/2**(self.activation_bits-1)
-        return output
+        normalized_activations = torch.layer_norm(input, input.size()[1:])
+        quantized_activations, gamma = AbsMaxQuantize.apply(normalized_activations, self.eps, self.activation_bits)
+        quantized_weights = Ternarize.apply(self.weight) if self.allow_zero else Binarize.apply(self.weight)
+        quantized_outputs = F.linear(quantized_activations, quantized_weights, self.bias)
+        dequantized_output = quantized_outputs*self.weight.abs().mean()*gamma/2**(self.activation_bits-1)
+        return dequantized_output
 
 def replace_layer(model, old_class, new_class, **new_class_kwargs):
     for name, module in model.named_children():
