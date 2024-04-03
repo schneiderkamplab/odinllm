@@ -82,7 +82,7 @@ class BitLinear(nn.Linear):
 
     def forward(self, input):
         normalized_activations = torch.layer_norm(input, input.size()[1:])
-        quantized_activations, gamma = AbsMaxQuantize.apply(normalized_activations, self.eps, self.activation_bits)
+        quantized_activations, gamma = AbsMaxQuantize.apply(normalized_activations, eps=self.eps, b=self.activation_bits)
         quantized_weights = Ternarize.apply(self.weight) if self.allow_zero else Binarize.apply(self.weight)
         quantized_outputs = F.linear(quantized_activations, quantized_weights, self.bias)
         dequantized_output = quantized_outputs*self.weight.abs().mean()*gamma/2**(self.activation_bits-1)
