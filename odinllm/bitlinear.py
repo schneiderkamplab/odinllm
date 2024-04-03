@@ -30,15 +30,17 @@ class Ternarize(torch.autograd.Function):
         return grad_output
 
 class AbsMaxQuantize(torch.autograd.Function):
+    eps = 1e-5
+    b = 8
     @staticmethod
-    def forward(ctx, input, eps=1e-5, b=8):
-        Q_b = 2**(b-1)
+    def forward(ctx, input):
+        Q_b = 2**(AbsMaxQuantize.b-1)
         gamma = input.abs().max()
         quantized = torch.round(
             torch.clamp(
                 input*Q_b/gamma,
-                -Q_b+eps,
-                Q_b-eps,
+                -Q_b+AbsMaxQuantize.eps,
+                Q_b-AbsMaxQuantize.eps,
             ),
         )
         return quantized, gamma
@@ -82,7 +84,7 @@ class BitLinear(nn.Linear):
 
     def forward(self, input):
         normalized_activations = torch.layer_norm(input, input.size()[1:])
-        quantized_activations, gamma = AbsMaxQuantize.apply(normalized_activations, eps=self.eps, b=self.activation_bits)
+        quantized_activations, gamma = AbsMaxQuantize.apply(normalized_activations)
         quantized_weights = Ternarize.apply(self.weight) if self.allow_zero else Binarize.apply(self.weight)
         quantized_outputs = F.linear(quantized_activations, quantized_weights, self.bias)
         dequantized_output = quantized_outputs*self.weight.abs().mean()*gamma/2**(self.activation_bits-1)
