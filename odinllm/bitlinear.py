@@ -67,7 +67,7 @@ class MinScaleQuantize(torch.autograd.Function):
 
     @staticmethod
     def backward(ctx, grad_output):
-        return F.hardtanh(grad_output)
+        return grad_output
 
 class BitLinear(nn.Linear):
     def __init__(self, in_features, out_features, bias=True, device=None, dtype=None, eps=1e-5, activation_bits=8, allow_zero=True):
