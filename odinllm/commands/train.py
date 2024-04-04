@@ -166,9 +166,9 @@ def __train(args, config):
                     status(f"{freeze} matched {name}", end='')
                     continue
         end()
-    if args.bitlinear is not None:
+    if args.bitlinear is not None and args.bitlinear:
         start("Replacing nn.Linear with BitLinear")
-        replace_layer(model, torch.nn.Linear, BitLinear, activation_bits=8, allow_zero=True)
+        replace_layer(model, torch.nn.Linear, BitLinear, activation_bits=8, allow_zero=True, device=model.device, dtype=config.model["torch_dtype"])
         print(model)
         end()
     start("Setting up training")
