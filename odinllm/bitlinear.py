@@ -8,51 +8,48 @@ class Binarize(torch.autograd.Function):
         alpha = input.mean()
         binarized = torch.sign(input-alpha)
         binarized.requires_grad = False
-        return binarized
+        return binarized, alpha
 
     @staticmethod
-    def backward(ctx, grad_output):
-        return grad_output
+    def backward(ctx, grad_output, alpha):
+        return grad_output, None
 
 class Ternarize(torch.autograd.Function):
     @staticmethod
-    def forward(ctx, input, eps=1e-5):
+    def forward(ctx, input, ones, minus_ones, eps=1e-5):
         gamma = input.abs().mean()
         unclipped = input/(gamma+eps)
-        ones = torch.ones_like(input)
-        minus_ones = -1*ones
         ternarized = torch.max(minus_ones, torch.min(ones, torch.round(unclipped)))
         ternarized.requires_grad = False
-        return ternarized
+        return ternarized, gamma
 
     @staticmethod
-    def backward(ctx, grad_output):
-        return grad_output
+    def backward(ctx, grad_output, gamma):
+        return grad_output, None, None, None
 
 class AbsMaxQuantize(torch.autograd.Function):
-    eps = 1e-5
-    b = 8
     @staticmethod
-    def forward(ctx, input):
-        Q_b = 2**(AbsMaxQuantize.b-1)
+    def forward(ctx, input, eps=1e-5, activation_bits=8):
+        Q_b = 2**(activation_bits-1)
         gamma = input.abs().max()
         quantized = torch.round(
             torch.clamp(
                 input*Q_b/gamma,
-                -Q_b+AbsMaxQuantize.eps,
-                Q_b-AbsMaxQuantize.eps,
+                -Q_b+eps,
+                Q_b-eps,
             ),
         )
-        return quantized
+        quantized.requires_grad = False
+        return quantized, gamma
 
     @staticmethod
-    def backward(ctx, grad_output):
-        return grad_output
+    def backward(ctx, grad_output, gamma):
+        return grad_output, None, None
 
 class MinScaleQuantize(torch.autograd.Function):
     @staticmethod
-    def forward(ctx, input, eps=1e-5, b=8):
-        Q_b = 2**(b-1)
+    def forward(ctx, input, eps=1e-5, activation_bits=8):
+        Q_b = 2**(activation_bits-1)
         eta = input.min()
         positive = input-eta
         gamma = input.abs().max()
@@ -63,14 +60,27 @@ class MinScaleQuantize(torch.autograd.Function):
                 Q_b-eps,
             ),
         )
-        return scaled
+        scaled.requires_grad = False
+        return scaled, gamma
 
     @staticmethod
-    def backward(ctx, grad_output):
-        return grad_output
+    def backward(ctx, grad_output, gamma):
+        return grad_output, None, None
 
 class BitLinear(nn.Linear):
-    def __init__(self, in_features, out_features, bias=True, device=None, dtype=None, eps=1e-5, activation_bits=8, allow_zero=True):
+    def __init__(
+            self,
+            in_features,
+            out_features,
+            bias=True,
+            device=None,
+            dtype=None,
+            eps=1e-5,
+            activation_bits=8,
+            allow_zero=True,
+            auto_requantize=True,
+            training=True,
+        ):
         super(BitLinear, self).__init__(
             in_features=in_features,
             out_features=out_features,
@@ -81,24 +91,46 @@ class BitLinear(nn.Linear):
         self.eps = eps
         self.activation_bits = activation_bits
         self.allow_zero = allow_zero
+        self.auto_requantize = auto_requantize
+        self.training = training
+        self.ones = torch.ones_like(self.weight)
+        self.minus_ones = -1*self.ones
+        if not self.auto_requantize:
+            self.requantize()
+
+    def __repr__(self):
+        return f"BitLinear(in_features={self.in_features}, out_features={self.out_features}, bias={self.bias is not None}, eps={self.eps}, activation_bits={self.activation_bits}, allow_zero={self.allow_zero}, auto_requantize={self.auto_requantize}, training={self.training})"
+
+    def requantize(self):
+        self.quantized_weights, self.beta = Ternarize.apply(self.weight, self.ones, self.minus_ones, self.eps) if self.allow_zero else Binarize.apply(self.weight, self.eps)
 
     def forward(self, input):
         normalized_activations = torch.layer_norm(input, input.size()[1:])
-        quantized_activations = AbsMaxQuantize.apply(normalized_activations)
-        quantized_weights = Ternarize.apply(self.weight) if self.allow_zero else Binarize.apply(self.weight)
-        quantized_outputs = F.linear(quantized_activations, quantized_weights, self.bias)
-        gamma = normalized_activations.abs().mean()
-        dequantized_output = quantized_outputs*self.weight.abs().mean()*gamma/2**(self.activation_bits-1)
+        quantized_activations, gamma = AbsMaxQuantize.apply(normalized_activations, self.eps, self.activation_bits)
+        if self.auto_requantize:
+            self.requantize()
+        quantized_outputs = F.linear(quantized_activations, self.quantized_weights, self.bias)
+        dequantized_output = quantized_outputs*self.beta*gamma/2**(self.activation_bits-1)
         return dequantized_output
 
-def replace_layer(model, old_class, new_class, **new_class_kwargs):
+def replace_layers(model, old_class, new_class, **new_class_kwargs):
     for name, module in model.named_children():
         if isinstance(module, old_class):
             kwargs = dict(new_class_kwargs)
             kwargs["in_features"] = module.in_features
             kwargs["out_features"] = module.out_features
             kwargs["bias"] = module.bias is not None
-            setattr(model, name, new_class(**kwargs))
+            new_module = new_class(**kwargs)
+            new_module.weight.data = module.weight.data
+            setattr(model, name, new_module)
             print(f"replaced layer {name} of class {old_class} with {new_class}")
         else:
-            replace_layer(module, old_class, new_class, **new_class_kwargs)
+            replace_layers(module, old_class, new_class, **new_class_kwargs)
+
+def requantize_layers(model):
+    for name, module in model.named_children():
+        if isinstance(module, BitLinear):
+            if not module.auto_requantize:
+                module.requantize()
+        else:
+            requantize_layers(module)
