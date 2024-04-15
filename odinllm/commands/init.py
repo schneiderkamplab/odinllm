@@ -61,12 +61,13 @@ def __init(args, config):
         config=config,
     )
     save_model(model, args.untrained_model)
-    tokenizer = init_tokenizer(
-        tokenizer_class=args.tokenizer_class,
-        tokenizer_template=args.tokenizer_template,
-        vocab_size=model.config.vocab_size,
-        min_frequency=args.tokenizer_min_frequency,
-        corpora=args.corpora,
-    )
-    save_tokenizer(tokenizer, args.untrained_model)
+    if args.corpora:
+        tokenizer = init_tokenizer(
+            tokenizer_class=args.tokenizer_class,
+            tokenizer_template=args.tokenizer_template,
+            vocab_size=model.config.vocab_size,
+            min_frequency=args.tokenizer_min_frequency,
+            corpora=args.corpora,
+        )
+        save_tokenizer(tokenizer, args.untrained_model)
     save_metadata(model.metadata, config, args.untrained_model)

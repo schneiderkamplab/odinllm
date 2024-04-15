@@ -168,7 +168,9 @@ def __train(args, config):
         end()
     if args.bitlinear is not None and args.bitlinear:
         start("Replacing nn.Linear with BitLinear")
-        replace_modules(model, device=model.device, dtype=config.model["torch_dtype"])
+        replace_modules(model)
+        model.to(model.device)
+        model.to(config.model["torch_dtype"])
         print(model)
         end()
     start("Setting up training")

@@ -1,0 +1,52 @@
+model:
+  torch_dtype: ::torch.bfloat16
+  use_flash_attention_2: true
+train:
+  peft: false
+training_args:
+  bf16: true
+  report_to: null
+  logging_steps: 1
+  eval_steps: 10
+  save_steps: 10
+  warmup_steps: 10
+  learning_rate: 0.01
+  weight_decay: 0.05
+  lr_scheduler_type: constant
+trainer_args:
+  packing: true
+  max_seq_length: 2048
+datasets:
+  seq_length: 2048
+  train_datasets:
+    - split: "train"
+      shuffle: true
+      name: "data/mmm.jsonl"
+      infinite: true
+      from: 100
+    # - split: "train"
+    #   shuffle: true
+    #   name: "data/dbc/dbc-text/forfatterweb.jsonl"
+    #   infinite: true
+    #   from: 10
+    # - split: "train"
+    #   shuffle: true
+    #   name: "data/dbc/dbc-text/faktalink.jsonl"
+    #   infinite: true
+    #   from: 10
+  eval_datasets:
+    - split: "train"
+      shuffle: true
+      name: "data/mmm.jsonl"
+      infinite: false
+      to: 100
+    # - split: "train"
+    #   shuffle: true
+    #   name: "data/dbc/dbc-text/forfatterweb.jsonl"
+    #   infinite: false
+    #   to: 10
+    # - split: "train"
+    #   shuffle: true
+    #   name: "data/dbc/dbc-text/faktalink.jsonl"
+    #   infinite: false
+    #   to: 10

@@ -1,4 +1,5 @@
 auto-gptq
+bitlinear
 bitsandbytes
 click
 optimum
