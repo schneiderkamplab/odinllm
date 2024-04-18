@@ -5,6 +5,7 @@ import json
 import os
 from peft import LoraConfig
 import re
+import time
 import torch
 from transformers import EarlyStoppingCallback, TrainerCallback, TrainingArguments
 from trl.trainer import DataCollatorForCompletionOnlyLM
@@ -67,6 +68,30 @@ class MetadataSavingCallback(TrainerCallback):
                 if os.path.islink(best_link):
                     os.remove(best_link)
                 os.symlink(state.best_model_checkpoint.split("/")[-1], best_link)
+
+class PausingCallback(TrainerCallback):
+    def on_save(self, args, state, control, model=None, optimizer=None, **kwargs):
+        if args.should_save:
+            paused_path = os.path.join(args.output_dir, "paused")
+            paused_model_path = paused_path+"_model.pickle"
+            paused_optimizer_path = paused_path+"_optimizer.pickle"
+            if os.path.exists(paused_path):
+                status(f"Found {paused_path} - pausing training and saving to disk")
+                torch.save(model.state_dict(), paused_model_path)
+                torch.save(optimizer.state_dict(), paused_optimizer_path)
+                dummy = torch.Tensor()
+                for param in model.parameters():
+                    param.data = dummy
+                for param_group in optimizer.param_groups:
+                    for param in param_group["params"]:
+                        param.data = dummy
+                #TODO REMOVE WEIGHTS
+                while os.path.exists(paused_path):
+                    time.sleep(10)
+                status(f"Pause file {paused_path} vanished - loading from disk and resuming ")
+                model.load_state_dict(torch.load(paused_model_path))
+                optimizer.load_state_dict(torch.load(paused_optimizer_path))
+                status("Resumed")
 
 def get_peft_config(model, config):
     start("Target modules")
@@ -206,7 +231,7 @@ def __train(args, config):
         print(model)
         end()
     start("Setting up training")
-    callbacks = [MetadataSavingCallback(config)]
+    callbacks = [MetadataSavingCallback(config), PausingCallback()]
     if args.bitlinear_debug is not None:
         bitlinear_callback = BitLinearCallback(args.bitlinear_debug)
         callbacks.append(bitlinear_callback)
