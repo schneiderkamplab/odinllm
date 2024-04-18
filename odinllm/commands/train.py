@@ -1,6 +1,7 @@
 from accelerate import Accelerator
 from bitlinear import replace_modules
 import click
+import json
 import os
 from peft import LoraConfig
 import re
@@ -18,6 +19,34 @@ from ..utils import (
     status,
     trainable_parameters,
 )
+
+class BitLinearCallback(TrainerCallback):
+    def on_log(self, args, state, control, model=None, logs=None, **kwargs):
+        if not state.is_world_process_zero:
+            return
+        with torch.no_grad():
+            logs = dict(logs)
+            logs["step"] = state.global_step
+            for name, module in model.named_modules():
+                #print(name)
+                if type(module).__name__ == "BitLinear":
+                    scale = 1 / module.measure(module.weight.abs()).clamp_(min=module.eps)
+                    abs_max = module.weight.abs().max().item()
+                    abs_mean = module.weight.abs().mean().item()
+                    abs_median = module.weight.abs().median().item()
+                    weights = (module.weight * scale).round().clamp(-1, 1).to(torch.int8).flatten().tolist()
+                    zeroes = sum([1 for weight in weights if weight == 0])
+                    ones = sum([1 for weight in weights if weight == 1])
+                    minus_ones = sum([1 for weight in weights if weight == -1])
+                    total = len(weights)
+                    logs[f"{name}/abs_max"] = abs_max
+                    logs[f"{name}/abs_mean"] = abs_mean
+                    logs[f"{name}/abs_median"] = abs_median
+                    logs[f"{name}/zeroes"] = zeroes
+                    logs[f"{name}/ones"] = ones
+                    logs[f"{name}/minus_ones"] = minus_ones
+                    logs[f"{name}/total"] = total
+            open("log.json", "at").write(json.dumps(logs)+"\n")
 
 class MetadataSavingCallback(TrainerCallback):
     def __init__(self, config):
@@ -111,7 +140,7 @@ def _train():
 @click.option("--experts", "-x", default=None, type=str)
 @click.option("--train-experts", "-a", default=None, type=int)
 @click.option("--freeze", default=None, type=str, multiple=True)
-@click.option("--bitlinear", default=None, type=bool)
+@click.option("--bitlinear", default=None, type=str)
 @args_config
 def train(args, config):
     return __train(args, config)
@@ -166,15 +195,18 @@ def __train(args, config):
                     status(f"{freeze} matched {name}", end='')
                     continue
         end()
-    if args.bitlinear is not None and args.bitlinear:
+    if args.bitlinear is not None:
         start("Replacing nn.Linear with BitLinear")
-        replace_modules(model)
+        replace_modules(model, new_class_kwargs={"measure": args.bitlinear})
         model.to(model.device)
         model.to(config.model["torch_dtype"])
         print(model)
         end()
     start("Setting up training")
     callbacks = [MetadataSavingCallback(config)]
+    if args.bitlinear:
+        bitlinear_callback = BitLinearCallback()
+        callbacks.append(bitlinear_callback)
     if args.early_stopping_patience is not None and args.early_stopping_patience >= 0:
         callbacks.append(EarlyStoppingCallback(early_stopping_patience=args.early_stopping_patience))
     status(f"callbacks: {callbacks}", end='')
