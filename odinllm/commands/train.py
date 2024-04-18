@@ -21,6 +21,8 @@ from ..utils import (
 )
 
 class BitLinearCallback(TrainerCallback):
+    def __init__(self, file_name):
+        self.file_name = file_name
     def on_log(self, args, state, control, model=None, logs=None, **kwargs):
         if not state.is_world_process_zero:
             return
@@ -46,7 +48,7 @@ class BitLinearCallback(TrainerCallback):
                     logs[f"{name}/ones"] = ones
                     logs[f"{name}/minus_ones"] = minus_ones
                     logs[f"{name}/total"] = total
-            open("log.json", "at").write(json.dumps(logs)+"\n")
+            open(self.file_name, "at").write(json.dumps(logs)+"\n")
 
 class MetadataSavingCallback(TrainerCallback):
     def __init__(self, config):
@@ -141,6 +143,7 @@ def _train():
 @click.option("--train-experts", "-a", default=None, type=int)
 @click.option("--freeze", default=None, type=str, multiple=True)
 @click.option("--bitlinear", default=None, type=str)
+@click.option("--bitlinear-debug", default=None, type=str)
 @args_config
 def train(args, config):
     return __train(args, config)
@@ -204,8 +207,8 @@ def __train(args, config):
         end()
     start("Setting up training")
     callbacks = [MetadataSavingCallback(config)]
-    if args.bitlinear:
-        bitlinear_callback = BitLinearCallback()
+    if args.bitlinear_debug is not None:
+        bitlinear_callback = BitLinearCallback(args.bitlinear_debug)
         callbacks.append(bitlinear_callback)
     if args.early_stopping_patience is not None and args.early_stopping_patience >= 0:
         callbacks.append(EarlyStoppingCallback(early_stopping_patience=args.early_stopping_patience))
