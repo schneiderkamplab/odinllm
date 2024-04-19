@@ -195,3 +195,28 @@ def get_current_device():
 
 def get_device_map():
     return {"": get_current_device()} if torch.cuda.is_available() else None
+
+# moving tensors around
+def optimizer_to(optim, device):
+    for param in optim.state.values():
+        if isinstance(param, torch.Tensor):
+            param.data = param.data.to(device)
+            if param._grad is not None:
+                param._grad.data = param._grad.data.to(device)
+        elif isinstance(param, dict):
+            for subparam in param.values():
+                if isinstance(subparam, torch.Tensor):
+                    subparam.data = subparam.data.to(device)
+                    if subparam._grad is not None:
+                        subparam._grad.data = subparam._grad.data.to(device)
+    for param_group in optim.param_groups:
+        for key, val in param_group.items():
+            if isinstance(val, torch.Tensor):
+                param_group[key] = val.to(device)
+
+def scheduler_to(sched, device):
+    for param in sched.__dict__.values():
+        if isinstance(param, torch.Tensor):
+            param.data = param.data.to(device)
+            if param._grad is not None:
+                param._grad.data = param._grad.data.to(device)
