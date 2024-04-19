@@ -1,12 +1,13 @@
 from accelerate import Accelerator
 from argparse import Namespace
 from datetime import datetime
+import gc
 import logging
 import os
 import time
 import torch
 from tqdm import tqdm
-import transformers
+from typing import Any
 import yaml
 
 # logging
@@ -220,3 +221,24 @@ def scheduler_to(sched, device):
             param.data = param.data.to(device)
             if param._grad is not None:
                 param._grad.data = param._grad.data.to(device)
+
+def find_all(type_to_find: type = None):
+    def _find_all(slist: list, olist: list, seen: dict[Any, None], type_to_find: type):
+        for e in slist:
+            if id(e) in seen:
+                continue
+            seen[id(e)] = None
+            if type_to_find is None or isinstance(e, type_to_find):
+                olist.append(e)
+            tl = gc.get_referents(e)
+            if tl:
+                _find_all(tl, olist, seen, type_to_find=type_to_find)
+    gcl = gc.get_objects()
+    olist = []
+    seen = {}
+    seen[id(_find_all)] = None
+    seen[id(gcl)] = None
+    seen[id(olist)] = None
+    seen[id(seen)] = None
+    _find_all(gcl, olist, seen, type_to_find=type_to_find)
+    return olist
