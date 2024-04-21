@@ -17,8 +17,8 @@ from ..utils import (
     args_config,
     end,
     get_device_map,
-    optimizer_to,
-    scheduler_to,
+    global_reset,
+    global_to,
     start,
     status,
     trainable_parameters,
@@ -78,33 +78,12 @@ class PausingCallback(TrainerCallback):
         paused_state = paused_path+f"{args.local_rank}"
         if os.path.exists(paused_path):
             status(f"Found {paused_path} - pausing training and moving to CPU")
-            gc.collect()
-            model_device = model.device
-            model.to("cpu")
-            optimizer_to(optimizer, "cpu")
-            scheduler_to(lr_scheduler, "cpu")
-            # for name, param in model.named_parameters():
-            #     if hasattr(param, "data"):
-            #         module.data = torch.Tensor().to(model.device).to(module.data.dtype)
-            #     if hasattr(module, "grad"):
-            #         module.grad = torch.Tensor().to(model.device).to(module.grad.dtype)
-            # for param_group in optimizer.param_groups:
-            #     for param in param_group["params"]:
-            #         param.data = torch.Tensor().to(model.device).to(param.dtype)
-            #         param.grad = torch.Tensor().to(model.device).to(param.dtype)
-            torch.cuda.empty_cache()
+            t2d = global_to("cpu")
             status("Paused")
             while os.path.exists(paused_path):
                 time.sleep(1)
             status(f"Pause file {paused_path} vanished - resuming and moving to GPU")
-            torch.cuda.empty_cache()
-            model.to(model_device)
-            optimizer_to(optimizer, "cpu")
-            scheduler_to(lr_scheduler, "cpu")
-            gc.collect()
-            # model_state_dict, optimizer_state_dict = torch.load(f"{paused_path}.{args.local_rank}")
-            # model.load_state_dict(model_state_dict)
-            # optimizer.load_state_dict(optimizer_state_dict)
+            global_reset(t2d)
             status("Resumed")
 
 def get_peft_config(model, config):

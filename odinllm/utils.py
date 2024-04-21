@@ -199,6 +199,9 @@ def get_device_map():
     return {"": get_current_device()} if torch.cuda.is_available() else None
 
 # moving tensors around
+def model_to(model, device):
+    model.to(device)
+
 def optimizer_to(optim, device):
     for param in optim.state.values():
         if isinstance(param, torch.Tensor):
@@ -243,3 +246,48 @@ def find_all(type_to_find: type = None):
     seen[id(seen)] = None
     _find_all(gcl, olist, seen, type_to_find=type_to_find)
     return olist
+
+def global_to(device):
+    gc.collect()
+    torch.cuda.init()
+    def _global_to(slist: list, t2d: dict, seen: dict[Any, None], device):
+        for e in slist:
+            if id(e) in seen:
+                continue
+            seen[id(e)] = None
+            if isinstance(e, torch.Tensor) and e.device != device:
+                t2d[e] = e.device
+                old_data = e.data
+                e.data = e.data.to(device)
+                del old_data
+                if e._grad is not None:
+                    old_data = e._grad.data
+                    e._grad.data = e._grad.data.to(device)
+                    del old_data
+            tl = gc.get_referents(e)
+            if tl:
+                _global_to(tl, t2d, seen, device)
+    gcl = gc.get_objects()
+    t2d = {}
+    seen = {}
+    seen[id(_global_to)] = None
+    seen[id(gcl)] = None
+    seen[id(t2d)] = None
+    seen[id(seen)] = None
+    _global_to(gcl, t2d, seen, device)
+    _clear_cuda()
+    return t2d
+
+def global_reset(t2d):
+    gc.collect()
+    numba.cuda.select_device(1)
+    torch.cuda.init()
+    for t, device in t2d.items():
+        t.data = t.data.to(device)
+        if t._grad is not None:
+            t._grad.data = t._grad.data.to(device)
+    _clear_cuda()
+
+def _clear_cuda():
+    gc.collect()
+    torch.cuda.empty_cache()
