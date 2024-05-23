@@ -24,16 +24,15 @@ def init_tokenizer(tokenizer_class, tokenizer_template, vocab_size, min_frequenc
         for dataset_name in corpora:
             status(dataset_name)
             if os.path.isfile(dataset_name):
-                dataset = load_dataset("json", data_files=dataset_name)
+                dataset = load_dataset("json", data_files=dataset_name, streaming=True)
             else:
-                dataset = load_dataset(dataset_name)
-            for split, column_names in dataset.column_names.items():
-                ds = dataset[split]
-                for column_name in column_names:
-                    column = ds[column_name]
-                    for item in column:
-                        if isinstance(item, str):
-                            yield item
+                dataset = load_dataset(dataset_name, "da", streaming=True)
+            for ds in dataset.values():
+                column = ds.select_columns("text")
+                for item in column:
+                    item = item["text"]
+                    if isinstance(item, str):
+                        yield item
     tokenizer = old_tokenizer.train_new_from_iterator(
         iterator(),
         vocab_size=vocab_size,
@@ -48,7 +47,7 @@ def _init():
 @_init.command()
 @click.argument("config", type=click.Path(exists=False), nargs=-1)
 @click.argument("untrained-model", type=str)
-@click.option("--corpora", default=None, type=click.Path(exists=True), multiple=True)
+@click.option("--corpora", default=None, type=click.Path(exists=False), multiple=True)
 @args_config
 def init(args, config):
     return __init(args, config)
