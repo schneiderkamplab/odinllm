@@ -61,7 +61,7 @@ def edit(args, config):
 def __edit(args, config):
     if args.add_every is None and args.add_experts is None and args.adjust_layers is None and args.extend_vocab is None:
         raise ValueError("either --add-every, --adjust-layers, or --add-experts needs to be specified")
-    if args.extend_vocab is not None and args.combine_embeddings not in ("average", "combine"):
+    if args.extend_vocab is not None and args.combine_embeddings not in ("average", "combine", "normalize"):
             raise ValueError(f"unknown value for combine_embeddings: {args.combine_embeddings} (options: 'average', 'combine')")
     tokenizer = load_tokenizer(
         args.pretrained_model,
@@ -235,16 +235,24 @@ def __edit(args, config):
         min_in_word_bigrams = 0 if args.min_in_word_bigrams is None else args.min_in_word_bigrams if args.min_in_word_bigrams >= 0 else max_in_word_ngram+1
         min_bigrams = 0 if args.min_bigrams is None else args.min_bigrams if args.min_bigrams >= 0 else max_ngram+1
         extra_merges = []
-        embeddings = model.get_submodule(args.embeddings)
-        lm_head = model.get_submodule(args.lm_head)
-        if args.combine_embeddings == "average":
+        embeddings = model.get_submodule(args.embeddings).to(torch.float64)
+        lm_head = model.get_submodule(args.lm_head).to(torch.float64)
+        if args.combine_embeddings in ("average", "normalize"):
             average_embedding = embeddings.weight.data.mean(dim=0)
             average_lm_head = lm_head.weight.data.mean(dim=0)
         pbar = tqdm(total=args.extend_vocab, desc="Extending vocabulary", disable=False)
+        os.makedirs(args.edited_model, exist_ok=True)
+        _f = open(os.path.join(args.edited_model, "extended_vocab.jsonl"), "wt", encoding="utf-8")
+        banned_pairs = set()
         while len(vocab) < max_vocab_len:
             best_pair = None
             for num in range(max_in_word_ngram, min_in_word_bigrams-1, -1):
                 for ngram in num2ngrams[num]:
+                    if ngram in banned_pairs:
+                        continue
+                    if not ngram[1] in decode:
+                        print(f"WARNING: ngram[1] {ngram[1]} not in decode: {decode}")
+                        continue
                     if decode[ngram[1]][0].isalpha():
                         best_pair = ngram
                         max_in_word_ngram = num
@@ -255,6 +263,8 @@ def __edit(args, config):
             if best_pair is None:
                 for num in range(max_ngram, min_bigrams-1, -1):
                     for ngram in num2ngrams[num]:
+                        if ngram in banned_pairs:
+                            continue
                         best_pair = ngram
                         max_ngram = num
                         break
@@ -265,6 +275,17 @@ def __edit(args, config):
                 break
             num = ngrams[best_pair]
             a, b = decode[best_pair[0]], decode[best_pair[1]]
+#            extra_merges.append(f"{a} {b}")
+            next_token = f"{a}{b}"
+            skip = (
+                next_token in vocab or
+                next_token.count('Ġ') > 1 or
+                next_token[1:-1].count('Ġ') > 0
+            )
+            if skip:
+                #print(f"WARNING: skipping {next_token} (next_token in vocab: {next_token in vocab}, count Ġ: {next_token.count('Ġ')}, inner Ġ: {next_token[1:-1].count('Ġ')})")
+                banned_pairs.add(best_pair)
+                continue
             if args.combine_embeddings == "average":
                 new_embedding = average_embedding
                 new_lm_head = average_lm_head
@@ -277,14 +298,23 @@ def __edit(args, config):
                     lm_head.weight.data[best_pair[0]]*len(a)+
                     lm_head.weight.data[best_pair[1]]*len(b)
                     ) / (len(a)+len(b))
+            elif args.combine_embeddings == "normalize":
+                new_embedding = (
+                    embeddings.weight.data[best_pair[0]]+
+                    embeddings.weight.data[best_pair[1]]
+                    )
+                new_lm_head = (
+                    lm_head.weight.data[best_pair[0]]+
+                    lm_head.weight.data[best_pair[1]]
+                    )
             else:
                 assert(False)
-            extra_merges.append(f"{a} {b}")
             embeddings.weight.data = torch.nn.parameter.Parameter(torch.cat((embeddings.weight.data, new_embedding.unsqueeze(0)), 0))
             lm_head.weight.data = torch.nn.parameter.Parameter(torch.cat((lm_head.weight.data, new_lm_head.unsqueeze(0)), 0))
-            next_token = f"{a}{b}"
+            extra_merges.append([a, b])
             vocab[next_token] = next_id
             decode[next_id] = next_token
+            _f.write(json.dumps({"token": next_token, "id": next_id, "a": a, "b": b, "num": num}, ensure_ascii=False)+"\n")
             len_tokenized = len(tokenized)
             a, b = best_pair
             for i in list(token2indices[a].keys()):
@@ -334,13 +364,36 @@ def __edit(args, config):
                 for i, t in enumerate(tqdm(tokenized, desc="Rebuilding token indices")):
                     if not t in special_tokens:
                         token2indices[t][i] = None
+            pbar.set_postfix(tok=best_pair, num=num)
             pbar.update(1)
         pbar.close()
+        _f.close()
+        if args.combine_embeddings == "normalize":
+            # normalize the new embeddings to have the same norm as the average embedding,
+            # i.e., divide by their norm and multiply by the average norm
+            print(f"Before normalization:\n{embeddings.weight.data[orig_vocab_len:]=}\n{lm_head.weight.data[orig_vocab_len:]=}")
+            print(f"Normalizing new embeddings:\n{average_embedding.norm()=}\n{embeddings.weight.data[orig_vocab_len:].norm(dim=1)=}\n{lm_head.weight.data[orig_vocab_len:].norm(dim=1)=}")
+            if embeddings.weight.data[orig_vocab_len:].norm(dim=1).min() < 1e-10:
+                print("WARNING: some embedding vectors have vanishing norm, cannot normalize")
+            if lm_head.weight.data[orig_vocab_len:].norm(dim=1).min() < 1e-10:
+                print("WARNING: some lm_head embeddings have vanishing norm, cannot normalize")
+            embeddings.weight.data[orig_vocab_len:] = (
+                embeddings.weight.data[orig_vocab_len:] *
+                average_embedding.norm() /
+                embeddings.weight.data[orig_vocab_len:].norm(dim=1, keepdim=True)               
+            )
+            lm_head.weight.data[orig_vocab_len:] = (
+                lm_head.weight.data[orig_vocab_len:] *
+                average_lm_head.norm() /
+                lm_head.weight.data[orig_vocab_len:].norm(dim=1, keepdim=True)
+            )
+            print(f"After normalization:\n{embeddings.weight.data[orig_vocab_len:]=}\n{lm_head.weight.data[orig_vocab_len:]=}")
+        model.set_submodule(args.embeddings, embeddings.to(model.dtype))
+        model.set_submodule(args.lm_head, lm_head.to(model.dtype))
         end()
         start("Saving extended tokenizer")
         tokenizer_json["model"]["vocab"] = vocab
         tokenizer_json["model"]["merges"].extend(extra_merges)
-        os.makedirs(args.edited_model, exist_ok=True)
         json.dump(tokenizer_json, open(os.path.join(args.edited_model, "tokenizer.json"), "wt"), indent=2, ensure_ascii=False)
         json.dump(json.load(open(os.path.join(args.pretrained_model, "special_tokens_map.json"), "rt")), open(os.path.join(args.edited_model, "special_tokens_map.json"), "wt"), indent=2, ensure_ascii=False)
         json.dump(json.load(open(os.path.join(args.pretrained_model, "tokenizer_config.json"), "rt")), open(os.path.join(args.edited_model, "tokenizer_config.json"), "wt"), indent=2, ensure_ascii=False)

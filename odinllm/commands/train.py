@@ -9,8 +9,8 @@ import re
 import time
 import torch
 from transformers import EarlyStoppingCallback, TrainerCallback, TrainingArguments
-from trl.trainer import DataCollatorForCompletionOnlyLM
 
+from ..data import DataCollatorForCompletionOnlyLM
 from ..shared import load_datasets, load_model, load_tokenizer, save_metadata
 from ..trainer import OdinTrainer
 from ..utils import (
