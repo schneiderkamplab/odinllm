@@ -2,9 +2,9 @@ from datasets import concatenate_datasets, load_dataset
 import os
 from peft import PeftModel
 from transformers import AutoModelForCausalLM, AutoTokenizer, BitsAndBytesConfig
-from trl.trainer import ConstantLengthDataset
 import yaml
 
+from .data import ConstantLengthDataset
 from .utils import chars_token_ratio, end, format_text, metadata_filename, start, status
 
 def load_datasets(tokenizer, config):

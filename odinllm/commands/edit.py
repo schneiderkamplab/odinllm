@@ -1,11 +1,35 @@
 import click
+from collections import defaultdict
 import copy
+import json
+import os
 import torch
-from transformers import MixtralConfig, MixtralForCausalLM
+from tqdm import tqdm
+from transformers import AutoTokenizer, MixtralConfig, MixtralForCausalLM
 from transformers.models.mixtral.modeling_mixtral import MixtralAttention, MixtralDecoderLayer, MixtralRMSNorm, MixtralRotaryEmbedding, MixtralSparseMoeBlock
 
 from ..shared import load_model, load_tokenizer, save_metadata, save_model, save_tokenizer
-from ..utils import args_config, end, start, status, trainable_parameters
+from ..utils import args_config, end, format_text, start, status, trainable_parameters
+
+def add_ngram(ngrams, num2ngrams, a, b):
+    ngram = (a, b)
+    num = ngrams[ngram]+1
+    ngrams[ngram] = num
+    num2ngrams[num][ngram] = None
+    if num-1:
+        del num2ngrams[num-1][ngram]
+    return num
+
+def del_ngram(ngrams, num2ngrams, a, b):
+    ngram = (a, b)
+    num = ngrams[ngram]-1
+    if num:
+        ngrams[ngram] = num
+        num2ngrams[num][ngram] = None
+    else:
+        del ngrams[ngram]
+    del num2ngrams[num+1][ngram]
+    return num
 
 @click.group()
 def _edit():
@@ -22,11 +46,27 @@ def _edit():
 @click.option("--gate", default=None, type=str)
 @click.option("--experts", default=None, type=str)
 @click.option("--adjust-layers", default=None, type=int)
+@click.option("--extend-vocab", default=None, type=int)
+@click.option("--vocab-files", default=None, type=click.Path(exists=True), multiple=True)
+@click.option("--min-in-word-bigrams", default=None, type=int)
+@click.option("--min-bigrams", default=None, type=int)
+@click.option("--batch-size", default=None, type=int)
+@click.option("--embeddings", default=None, type=str)
+@click.option("--lm-head", default=None, type=str)
+@click.option("--combine-embeddings", default=None, type=str)
 @args_config
 def edit(args, config):
     return __edit(args, config)
 
 def __edit(args, config):
+    if args.add_every is None and args.add_experts is None and args.adjust_layers is None and args.extend_vocab is None:
+        raise ValueError("either --add-every, --adjust-layers, or --add-experts needs to be specified")
+    if args.extend_vocab is not None and args.combine_embeddings not in ("average", "combine", "normalize"):
+            raise ValueError(f"unknown value for combine_embeddings: {args.combine_embeddings} (options: 'average', 'combine')")
+    tokenizer = load_tokenizer(
+        args.pretrained_model,
+        config=config,
+    )
     model = load_model(
         args.pretrained_model,
         config=config,
@@ -35,8 +75,6 @@ def __edit(args, config):
         start("Printing model information")
         status(model)
     layers = model.get_submodule(args.layers)
-    if args.add_every is None and args.add_experts is None and args.adjust_layers is None:
-        raise ValueError("either --add-every, --adjust-layers, or --add-experts needs to be specified")
     if args.add_every is not None:
         start(f"Expanding model from {len(layers)} layers")
         inserts = reversed(range(args.add_every-1, len(layers), args.add_every))
@@ -148,8 +186,222 @@ def __edit(args, config):
                     status(f"WARNING could not find {args.layers}.{len(layers)-1}.{zero}")
         status(f"#layers: {len(layers)}", end='')
         end()
+    if args.extend_vocab is not None:
+        corpora = []
+        for vocab_file in tqdm(args.vocab_files, desc="Loading corpora"):
+            corpus = []
+            with open(vocab_file, "rt") as f:
+                for line in f:
+                    corpus.append(format_text(json.loads(line), tokenizer=tokenizer))
+            corpora.append(corpus)
+        tokenizer = AutoTokenizer.from_pretrained(args.pretrained_model)
+        vocab = tokenizer.get_vocab()
+        vocab = dict(sorted(vocab.items(), key=lambda x: x[1]))
+        orig_vocab_len = len(vocab)
+        orig_max_id = max(vocab.values())
+        max_vocab_len = orig_vocab_len+args.extend_vocab
+        decode = {v: k for k, v in vocab.items()}
+        next_id = orig_max_id + 1
+        tokenized = []
+        batch_size = 100000 if args.batch_size is None else args.batch_size
+        for i, samples in enumerate(tqdm(corpora, desc="Tokenizing corpora")):
+            pbar = tqdm(total=(len(samples)+batch_size-1)//batch_size, desc=f"Tokenizing corpus in batches of {batch_size}", disable=False)
+            while samples:
+                batch, samples, corpora[i] = samples[:batch_size], samples[batch_size:], corpora[i][batch_size:]
+                for tokenized_sample in tokenizer(batch, batch)["input_ids"]:
+                    tokenized.extend(tokenized_sample)
+                pbar.update(1)
+        pbar.close()
+        #tprint(tokenized, decode)
+        start(f"Extending vocabulary from {model.config.vocab_size} to {model.config.vocab_size+args.extend_vocab}")
+        tokenizer_json = json.load(open(os.path.join(args.pretrained_model, "tokenizer.json"), "rt"))
+        special_tokens = {t["id"]: t["content"] for t in tokenizer_json["added_tokens"]}
+        ngrams = defaultdict(int)
+        token2indices = defaultdict(dict)
+        num2ngrams = defaultdict(dict)
+        max_ngram = 0
+        max_in_word_ngram = 0
+        len_tokenized = len(tokenized)
+        for i in tqdm(range(len_tokenized), desc="Creating ngram statistics"):
+            if tokenized[i] in special_tokens:
+                continue
+            if i+1 < len_tokenized and not tokenized[i+1] in special_tokens:
+                num = add_ngram(ngrams, num2ngrams, tokenized[i], tokenized[i+1])
+                if num > max_ngram:
+                    max_ngram = num
+                if num > max_in_word_ngram and decode[tokenized[i+1]][0].isalpha():
+                    max_in_word_ngram = num
+            token2indices[tokenized[i]][i] = None
+        min_in_word_bigrams = 0 if args.min_in_word_bigrams is None else args.min_in_word_bigrams if args.min_in_word_bigrams >= 0 else max_in_word_ngram+1
+        min_bigrams = 0 if args.min_bigrams is None else args.min_bigrams if args.min_bigrams >= 0 else max_ngram+1
+        extra_merges = []
+        embeddings = model.get_submodule(args.embeddings).to(torch.float64)
+        lm_head = model.get_submodule(args.lm_head).to(torch.float64)
+        if args.combine_embeddings in ("average", "normalize"):
+            average_embedding = embeddings.weight.data.mean(dim=0)
+            average_lm_head = lm_head.weight.data.mean(dim=0)
+        pbar = tqdm(total=args.extend_vocab, desc="Extending vocabulary", disable=False)
+        os.makedirs(args.edited_model, exist_ok=True)
+        _f = open(os.path.join(args.edited_model, "extended_vocab.jsonl"), "wt", encoding="utf-8")
+        banned_pairs = set()
+        while len(vocab) < max_vocab_len:
+            best_pair = None
+            for num in range(max_in_word_ngram, min_in_word_bigrams-1, -1):
+                for ngram in num2ngrams[num]:
+                    if ngram in banned_pairs:
+                        continue
+                    if not ngram[1] in decode:
+                        print(f"WARNING: ngram[1] {ngram[1]} not in decode: {decode}")
+                        continue
+                    if decode[ngram[1]][0].isalpha():
+                        best_pair = ngram
+                        max_in_word_ngram = num
+                        break
+                else:
+                    continue
+                break
+            if best_pair is None:
+                for num in range(max_ngram, min_bigrams-1, -1):
+                    for ngram in num2ngrams[num]:
+                        if ngram in banned_pairs:
+                            continue
+                        best_pair = ngram
+                        max_ngram = num
+                        break
+                    else:
+                        continue
+                    break
+            if best_pair is None:
+                break
+            num = ngrams[best_pair]
+            a, b = decode[best_pair[0]], decode[best_pair[1]]
+#            extra_merges.append(f"{a} {b}")
+            next_token = f"{a}{b}"
+            skip = (
+                next_token in vocab or
+                next_token.count('Ġ') > 1 or
+                next_token[1:-1].count('Ġ') > 0
+            )
+            if skip:
+                #print(f"WARNING: skipping {next_token} (next_token in vocab: {next_token in vocab}, count Ġ: {next_token.count('Ġ')}, inner Ġ: {next_token[1:-1].count('Ġ')})")
+                banned_pairs.add(best_pair)
+                continue
+            if args.combine_embeddings == "average":
+                new_embedding = average_embedding
+                new_lm_head = average_lm_head
+            elif args.combine_embeddings == "combine":
+                new_embedding = (
+                    embeddings.weight.data[best_pair[0]]*len(a)+
+                    embeddings.weight.data[best_pair[1]]*len(b)
+                    ) / (len(a)+len(b))
+                new_lm_head = (
+                    lm_head.weight.data[best_pair[0]]*len(a)+
+                    lm_head.weight.data[best_pair[1]]*len(b)
+                    ) / (len(a)+len(b))
+            elif args.combine_embeddings == "normalize":
+                new_embedding = (
+                    embeddings.weight.data[best_pair[0]]+
+                    embeddings.weight.data[best_pair[1]]
+                    )
+                new_lm_head = (
+                    lm_head.weight.data[best_pair[0]]+
+                    lm_head.weight.data[best_pair[1]]
+                    )
+            else:
+                assert(False)
+            embeddings.weight.data = torch.nn.parameter.Parameter(torch.cat((embeddings.weight.data, new_embedding.unsqueeze(0)), 0))
+            lm_head.weight.data = torch.nn.parameter.Parameter(torch.cat((lm_head.weight.data, new_lm_head.unsqueeze(0)), 0))
+            extra_merges.append([a, b])
+            vocab[next_token] = next_id
+            decode[next_id] = next_token
+            _f.write(json.dumps({"token": next_token, "id": next_id, "a": a, "b": b, "num": num}, ensure_ascii=False)+"\n")
+            len_tokenized = len(tokenized)
+            a, b = best_pair
+            for i in list(token2indices[a].keys()):
+                _a = tokenized[i]
+                if _a == -1:
+                    continue
+                assert _a == a
+                _b = -1
+                j = i+1
+                while j < len_tokenized:
+                    _b = tokenized[j]
+                    if _b >= 2:
+                        break
+                    j += 1
+                if _b != b:
+                    continue
+                tokenized[i] = next_id
+                tokenized[j] = -1
+                del_ngram(ngrams, num2ngrams, a, b)
+                del token2indices[a][i]
+                del token2indices[b][j]
+                token2indices[next_id][i] = None
+                _i = i-1
+                while _i >= 0:
+                    if tokenized[_i] != -1:
+                        if tokenized[_i] in special_tokens:
+                            break
+                        add_ngram(ngrams, num2ngrams, tokenized[_i], next_id)
+                        del_ngram(ngrams, num2ngrams, tokenized[_i], a)
+                        break
+                    _i -= 1
+                _j = j+1
+                while _j < len_tokenized:
+                    if tokenized[_j] != -1:
+                        if tokenized[_j] in special_tokens:
+                            break
+                        add_ngram(ngrams, num2ngrams, next_id, tokenized[_j])
+                        del_ngram(ngrams, num2ngrams, b, tokenized[_j])
+                        break
+                    _j += 1
+            assert(not ngrams[best_pair])
+            assert(best_pair not in num2ngrams[num])
+            next_id += 1
+            if False and not next_id % 1000:
+                tokenized = [t for t in tqdm(tokenized, desc="Compacting tokenized corpus") if t != -1]
+                token2indices = defaultdict(dict)
+                for i, t in enumerate(tqdm(tokenized, desc="Rebuilding token indices")):
+                    if not t in special_tokens:
+                        token2indices[t][i] = None
+            pbar.set_postfix(tok=best_pair, num=num)
+            pbar.update(1)
+        pbar.close()
+        _f.close()
+        if args.combine_embeddings == "normalize":
+            # normalize the new embeddings to have the same norm as the average embedding,
+            # i.e., divide by their norm and multiply by the average norm
+            print(f"Before normalization:\n{embeddings.weight.data[orig_vocab_len:]=}\n{lm_head.weight.data[orig_vocab_len:]=}")
+            print(f"Normalizing new embeddings:\n{average_embedding.norm()=}\n{embeddings.weight.data[orig_vocab_len:].norm(dim=1)=}\n{lm_head.weight.data[orig_vocab_len:].norm(dim=1)=}")
+            if embeddings.weight.data[orig_vocab_len:].norm(dim=1).min() < 1e-10:
+                print("WARNING: some embedding vectors have vanishing norm, cannot normalize")
+            if lm_head.weight.data[orig_vocab_len:].norm(dim=1).min() < 1e-10:
+                print("WARNING: some lm_head embeddings have vanishing norm, cannot normalize")
+            embeddings.weight.data[orig_vocab_len:] = (
+                embeddings.weight.data[orig_vocab_len:] *
+                average_embedding.norm() /
+                embeddings.weight.data[orig_vocab_len:].norm(dim=1, keepdim=True)               
+            )
+            lm_head.weight.data[orig_vocab_len:] = (
+                lm_head.weight.data[orig_vocab_len:] *
+                average_lm_head.norm() /
+                lm_head.weight.data[orig_vocab_len:].norm(dim=1, keepdim=True)
+            )
+            print(f"After normalization:\n{embeddings.weight.data[orig_vocab_len:]=}\n{lm_head.weight.data[orig_vocab_len:]=}")
+        model.set_submodule(args.embeddings, embeddings.to(model.dtype))
+        model.set_submodule(args.lm_head, lm_head.to(model.dtype))
+        end()
+        start("Saving extended tokenizer")
+        tokenizer_json["model"]["vocab"] = vocab
+        tokenizer_json["model"]["merges"].extend(extra_merges)
+        json.dump(tokenizer_json, open(os.path.join(args.edited_model, "tokenizer.json"), "wt"), indent=2, ensure_ascii=False)
+        json.dump(json.load(open(os.path.join(args.pretrained_model, "special_tokens_map.json"), "rt")), open(os.path.join(args.edited_model, "special_tokens_map.json"), "wt"), indent=2, ensure_ascii=False)
+        json.dump(json.load(open(os.path.join(args.pretrained_model, "tokenizer_config.json"), "rt")), open(os.path.join(args.edited_model, "tokenizer_config.json"), "wt"), indent=2, ensure_ascii=False)
+        status(f"#extended: {len(vocab)-orig_vocab_len}", end='')
+        end()
+        tokenizer = load_tokenizer(args.edited_model, config)
+        model.config.vocab_size = len(vocab)
     save_model(model, args.edited_model)
-    tokenizer = load_tokenizer(args.pretrained_model, config)
     save_tokenizer(tokenizer, args.edited_model)
     save_metadata(model.metadata, config, args.edited_model)
     

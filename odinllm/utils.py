@@ -1,12 +1,14 @@
 from accelerate import Accelerator
 from argparse import Namespace
 from datetime import datetime
+import gc
 import logging
 import os
 import time
 import torch
 from tqdm import tqdm
 import transformers
+from typing import Any
 import yaml
 
 # logging
@@ -195,3 +197,97 @@ def get_current_device():
 
 def get_device_map():
     return {"": get_current_device()} if torch.cuda.is_available() else None
+
+# moving tensors around
+def model_to(model, device):
+    model.to(device)
+
+def optimizer_to(optim, device):
+    for param in optim.state.values():
+        if isinstance(param, torch.Tensor):
+            param.data = param.data.to(device)
+            if param._grad is not None:
+                param._grad.data = param._grad.data.to(device)
+        elif isinstance(param, dict):
+            for subparam in param.values():
+                if isinstance(subparam, torch.Tensor):
+                    subparam.data = subparam.data.to(device)
+                    if subparam._grad is not None:
+                        subparam._grad.data = subparam._grad.data.to(device)
+    for param_group in optim.param_groups:
+        for key, val in param_group.items():
+            if isinstance(val, torch.Tensor):
+                param_group[key] = val.to(device)
+
+def scheduler_to(sched, device):
+    for param in sched.__dict__.values():
+        if isinstance(param, torch.Tensor):
+            param.data = param.data.to(device)
+            if param._grad is not None:
+                param._grad.data = param._grad.data.to(device)
+
+def find_all(type_to_find: type = None):
+    def _find_all(slist: list, olist: list, seen: dict[Any, None], type_to_find: type):
+        for e in slist:
+            if id(e) in seen:
+                continue
+            seen[id(e)] = None
+            if type_to_find is None or isinstance(e, type_to_find):
+                olist.append(e)
+            tl = gc.get_referents(e)
+            if tl:
+                _find_all(tl, olist, seen, type_to_find=type_to_find)
+    gcl = gc.get_objects()
+    olist = []
+    seen = {}
+    seen[id(_find_all)] = None
+    seen[id(gcl)] = None
+    seen[id(olist)] = None
+    seen[id(seen)] = None
+    _find_all(gcl, olist, seen, type_to_find=type_to_find)
+    return olist
+
+def global_to(device):
+    gc.collect()
+    torch.cuda.init()
+    def _global_to(slist: list, t2d: dict, seen: dict[Any, None], device):
+        for e in slist:
+            if id(e) in seen:
+                continue
+            seen[id(e)] = None
+            if isinstance(e, torch.Tensor) and e.device != device:
+                t2d[e] = e.device
+                old_data = e.data
+                e.data = e.data.to(device)
+                del old_data
+                if e._grad is not None:
+                    old_data = e._grad.data
+                    e._grad.data = e._grad.data.to(device)
+                    del old_data
+            tl = gc.get_referents(e)
+            if tl:
+                _global_to(tl, t2d, seen, device)
+    gcl = gc.get_objects()
+    t2d = {}
+    seen = {}
+    seen[id(_global_to)] = None
+    seen[id(gcl)] = None
+    seen[id(t2d)] = None
+    seen[id(seen)] = None
+    _global_to(gcl, t2d, seen, device)
+    _clear_cuda()
+    return t2d
+
+def global_reset(t2d):
+    gc.collect()
+    numba.cuda.select_device(1)
+    torch.cuda.init()
+    for t, device in t2d.items():
+        t.data = t.data.to(device)
+        if t._grad is not None:
+            t._grad.data = t._grad.data.to(device)
+    _clear_cuda()
+
+def _clear_cuda():
+    gc.collect()
+    torch.cuda.empty_cache()
